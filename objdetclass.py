@@ -4,11 +4,12 @@ import numpy as np
 import traceback
 import threading
 import csv
+import serial
 from realsense_obj import DepthCamera
 from ultralytics import YOLO
 from NoMaskFoundException import NoMaskFound
 from detectionClass import Detection
-
+from pynput import keyboard
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
 CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox']
@@ -20,8 +21,9 @@ CLASS_COLORS = {
 }
 CONFIDENCE_THRESHOLD = 0.6
 MM_TO_INCHES = 25.4
-class ObjectDetector:
 
+
+class ObjectDetector:
 
     def __init__(self, model_path, camera_settings_path):
         self.model = YOLO(model_path)
@@ -30,6 +32,37 @@ class ObjectDetector:
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
 
+    def start_keyboard_listener(self):
+        """
+        Starts a keyboard listener in a separate thread.
+        """
+        listener = keyboard.Listener(on_press=self.on_press)
+        listener.start()
+
+    def start_serial_listener(self, port, baud_rate):
+        """
+        Starts a thread to listen for serial commands.
+
+        :param port: The serial port to listen to (e.g., 'COM3' or '/dev/ttyUSB0').
+        :param baud_rate: The baud rate for the serial communication.
+        """
+
+        def serial_listener():
+            with serial.Serial(port, baud_rate) as ser:
+                while True:
+                    if ser.in_waiting:
+                        line = ser.readline().decode('utf-8').strip()
+                        if line == "WRITE_CSV":
+                            print("Arduino Command: Writing to CSV")
+                            self.write_detections_to_csv(self.detections, "output.csv")
+                        elif line == "QUIT":
+                            print("Arduino Command: Quitting")
+                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.dc.release()
+                            break
+
+        listener_thread = threading.Thread(target=serial_listener)
+        listener_thread.start()
 
     def process_detection(self, class_name, confidence, robot_Vals):
 
@@ -45,13 +78,11 @@ class ObjectDetector:
         with self.lock:  # Acquire lock before modifying shared resource
             self.detections.append(detection_data)
 
-
     def get_detections(self):
         with self.lock:  # Acquire lock before accessing shared resource
             detections_copy = self.detections.copy()
             self.detections.clear()
         return detections_copy
-
 
     def write_detections_to_csv(self, detections, filename):
         """
@@ -65,12 +96,15 @@ class ObjectDetector:
                 writer = csv.writer(file)
 
                 # Write the header
-                writer.writerow(['Class Name', 'Confidence', 'Depth (mm)', 'Depth (in)', 'X', 'Y', 'Z', 'Horizontal Angle', 'Direction'])
+                writer.writerow(
+                    ['Class Name', 'Confidence', 'Depth (mm)', 'Depth (in)', 'X', 'Y', 'Z', 'Horizontal Angle',
+                     'Direction'])
 
                 # Write the detection data
                 for detection in detections:
-                    writer.writerow([detection.class_name, f"{detection.confidence:.2f}", f"{detection.depth_mm:.2f}", f"{detection.depth_in:.2f}", f"{detection.x:.2f}", f"{detection.y:.2f}", f"{detection.z:.2f}", f"{detection.horizontal_angle:.2f}", detection.direction])
-
+                    writer.writerow([detection.class_name, f"{detection.confidence:.2f}", f"{detection.depth_mm:.2f}",
+                                     f"{detection.depth_in:.2f}", f"{detection.x:.2f}", f"{detection.y:.2f}",
+                                     f"{detection.z:.2f}", f"{detection.horizontal_angle:.2f}", detection.direction])
 
     def get_vals(self, depth_image, color_image, depth_frame):
         """
@@ -103,7 +137,7 @@ class ObjectDetector:
                     if box.conf[0] > CONFIDENCE_THRESHOLD:
                         class_name = CLASS_NAMES[int(box.cls[0])]
                         robot_Vals = self.process_box(box, class_name, color_image, depth_image)
-                        self.process_detection(class_name,box.conf[0], robot_Vals)
+                        self.process_detection(class_name, box.conf[0], robot_Vals)
                         self.draw_and_print_info(class_name, box.conf[0], robot_Vals, box, color_image)
 
     # Calculates average depth information within a bounding box in the depth image
@@ -123,7 +157,7 @@ class ObjectDetector:
                 depth_list.append(depth_value)
 
         # Calculate average depth
-        depth = sum(depth_list)/len(depth_list)
+        depth = sum(depth_list) / len(depth_list)
 
         return depth, depth / MM_TO_INCHES  # Return depth in both mm and inches
 
@@ -161,7 +195,6 @@ class ObjectDetector:
         print("Class name -->", className)
         print(f"Confidence ---> {confidence * 100:.1f}%")
 
-
         # Print depth information
         print(f"Distance in ---> {depth_in:.3f} in", )
         print(f"Distance ---> {depth:.3f} mm", )
@@ -178,7 +211,8 @@ class ObjectDetector:
         org = [x1, y1]
         bottom = [x1, y2 + 3]
         bbottom = [x1, y2 + 35]
-        cv2.putText(color_image, f"{className}: {confidence * 100:.0f}%", org, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
+        cv2.putText(color_image, f"{className}: {confidence * 100:.0f}%", org, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0),
+                    2)
         cv2.putText(color_image, f"Distance: {depth_in:.3f} in", bottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
         cv2.putText(color_image, f"Distance: {depth:.3f} mm", bbottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
 
@@ -215,8 +249,8 @@ class ObjectDetector:
         x1, y1, x2, y2 = map(int, box.xyxy[0])
 
         # Calculate the center of the bounding box
-        centerx = int((x2 + x1)/2)
-        centery = int((y2 + y1)/2)
+        centerx = int((x2 + x1) / 2)
+        centery = int((y2 + y1) / 2)
 
         # Calculate depth information for the bounding box
         depth, depth_in = self.calculate_depth_info_box(depth_image, box)
@@ -231,6 +265,12 @@ class ObjectDetector:
     def start_detection(self):
         print("[INFO] Starting video stream...")
         self.dc.start_Streaming()
+
+        # Start the serial listener thread
+        # self.start_serial_listener('COM3', 9600)  # Adjust these parameters as needed
+
+        # Start the keyboard listener thread
+        self.start_keyboard_listener()
 
         while True:
             ret, depth_frame, color_frame, depth_colormap, depth_image = self.dc.get_frame()
@@ -253,7 +293,20 @@ class ObjectDetector:
                 self.write_detections_to_csv(self.detections, "output.csv")
             if key == 27:
                 self.write_detections_to_csv(self.detections, "output.csv")
+                self.dc.release()
                 break
+
+    def on_press(self, key):
+        try:
+            if key == keyboard.Key.enter or key.char in ['w', 'W']:
+                print("Writing to CSV")
+                self.write_detections_to_csv(self.detections, "output.csv")
+            if key == keyboard.Key.esc or key.char in ['q', 'Q']:
+                self.write_detections_to_csv(self.detections, "output.csv")
+                self.dc.release()  # Stop listener
+
+        except AttributeError:
+            pass
 
 
 # Usage of the class in the main program

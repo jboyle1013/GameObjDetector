@@ -36,9 +36,9 @@ class DepthCamera:
 
         self.spatial_filter = rs.spatial_filter()
         self.temporal_filter = rs.temporal_filter()
+        self.configure_Filters()
         # Create a colorizer object
         self.colorizer = rs.colorizer()
-        self.pccolors = None
         # Enable histogram equalization
         self.colorizer.set_option(rs.option.histogram_equalization_enabled, 1)
 
@@ -80,7 +80,6 @@ class DepthCamera:
         aligned_frames = self.align.process(frames)
         depth_frame = aligned_frames.get_depth_frame()
         color_frame = aligned_frames.get_color_frame()
-        self.pc, self.vtx = self.setup_point_cloud(depth_frame)
         depth_frame = self.apply_Filters(depth_frame)
         depth_image = np.asanyarray(depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
@@ -95,127 +94,6 @@ class DepthCamera:
     def deproject(self, pixel, depth):
 
         return rs.rs2_deproject_pixel_to_point(self.depth_intrinsics, pixel, depth)
-
-    def setup_point_cloud(self, depth_frame):
-        """
-        Sets up the point cloud using a depth frame from the RealSense camera.
-
-        Parameters:
-            depth_frame: The depth frame from the RealSense camera.
-
-        Returns:
-            point_cloud: Point cloud object.
-            vtx: Vertices of the point cloud as a NumPy array.
-        """
-        pc = rs.pointcloud()
-        points = pc.calculate(depth_frame)
-        vtx = np.asanyarray(points.get_vertices())
-
-        return pc, vtx
-
-    def create_height_based_colors(self, point_cloud):
-        """
-        Create a color array for a point cloud based on the Z coordinate.
-
-        Parameters:
-            point_cloud: A numpy array of 3D points.
-
-        Returns:
-            A numpy array of RGB colors with values between 0 and 1.
-        """
-        # Normalize Z values to a range of 0 to 1
-        min_z = np.min(point_cloud[:, 2])
-        max_z = np.max(point_cloud[:, 2])
-        normalized_z = (point_cloud[:, 2] - min_z) / (max_z - min_z)
-
-        # Create a gradient from blue to red based on the Z value
-        colors = np.zeros((len(point_cloud), 3))
-        colors[:, 0] = normalized_z  # Red channel
-        colors[:, 2] = 1 - normalized_z  # Blue channel
-        return colors
-    def visualize_point_cloud_with_colors(self, points_3d, colors):
-        """
-        Visualizes the point cloud with colors.
-
-        Parameters:
-            points_3d: A numpy array of 3D points.
-            colors: A numpy array of RGB colors.
-        """
-        # Create an Open3D PointCloud object
-        point_cloud = o3d.geometry.PointCloud()
-
-        # Convert numpy array to Open3D format
-        point_cloud.points = o3d.utility.Vector3dVector(points_3d)
-        point_cloud.colors = o3d.utility.Vector3dVector(colors)
-
-        # Visualize the point cloud
-        o3d.visualization.draw_geometries([point_cloud])
-
-    def get_3d_coordinates_masks(self, depth_frame, mask):
-        """
-        Get 3D coordinates of the detected object in the point cloud using a mask.
-        Parameters:
-            depth_frame: The depth frame from the RealSense camera.
-            mask: A boolean array where True represents the detected object's area.
-
-        Returns:
-            3D coordinates of points within the mask.
-        """
-        # Ensure that the dimensions of the mask are the same as the depth frame
-        if depth_frame.shape[:2] != mask.shape:
-            raise ValueError("The mask must have the same dimensions as the depth frame.")
-
-        points_3d = []
-        for i in range(mask.shape[0]):
-            for j in range(mask.shape[1]):
-                if mask[i, j]:
-                    # Compute the index in the flattened array
-                    idx = i * depth_frame.shape[1] + j
-                    # Ensure the index is within the bounds of the vertex array
-                    if idx < len(self.vtx):
-                        point_3d = self.vtx[idx]
-                        points_3d.append([point_3d[0], point_3d[1], point_3d[2]])
-        d3points = np.array(points_3d)
-        self.pccolors = self.create_height_based_colors(d3points)
-        self.visualize_point_cloud_with_colors(d3points, self.pccolors)
-        return d3points
-
-    def get_3d_coordinates(self, depth_frame, bbox):
-        """
-        Get 3D coordinates of the detected object in the point cloud.
-
-        Parameters:
-            depth_frame: The depth frame from the RealSense camera.
-            bbox: Bounding box [x1, y1, x2, y2] from YOLO detection.
-
-        Returns:
-            3D coordinates of points within the bounding box.
-        """
-        w, h = int((self.depth_intrinsics.width)/2), int((self.depth_intrinsics.height)/2)
-
-        x1, y1, x2, y2 = bbox
-        points_3d = []
-        for i in range(y1, y2):
-            for j in range(x1, x2):
-                idx = i * w + j
-                if idx < len(self.vtx):
-                    point_3d = self.vtx[idx]
-                    points_3d.append([point_3d[0], point_3d[1], point_3d[2]])
-        return np.array(points_3d)
-
-    def convert_to_direction_and_distance(self, x, y, z):
-        # Horizontal angle to the target
-        horizontal_angle = math.degrees(math.atan2(x, z))
-
-        # Distance to the target
-        distance_meters = math.sqrt(x**2 + z**2)
-        distance = distance_meters * 1000
-        forward_distance = z * 1000
-        horizontal_distance = abs(x*1000)
-        # Direction (left or right)
-        direction = "left" if x < 0 else "right"
-
-        return horizontal_angle, distance, direction, forward_distance, horizontal_distance
 
 
     def release(self):
