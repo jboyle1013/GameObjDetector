@@ -10,6 +10,8 @@ from ultralytics import YOLO
 from NoMaskFoundException import NoMaskFound
 from detectionClass import Detection
 from pynput import keyboard
+import spidev
+import Jetson,GPIO
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
 CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'YellowLine', 'WhiteLine']
@@ -36,6 +38,31 @@ class ObjectDetector:
         self.dc.set_Settings_from_json(camera_settings_path)
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
+        self.spi_setup()
+        self.gpio_setup()
+
+
+    def gpio_setup(self):
+        self.requestPin = 17  # Replace with your GPIO pin number
+        GPIO.setmode(GPIO.BOARD)  # or GPIO.BCM depending on your pin numbering system
+        GPIO.setup(self.requestPin, GPIO.IN)
+
+    def listen_for_request(self):
+        while True:
+            if GPIO.input(self.requestPin):
+                # If the signal is detected, send SPI data
+                self.send_spi_data()
+                # Add a small delay to debounce
+                time.sleep(0.1)
+
+
+    def spi_setup(self):
+        self.spi = spidev.SpiDev()
+        self.spi.open(0, 0)  # Open SPI port 0, device (CS) 0
+        self.spi.mode = 0b00  # SPI mode
+        self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
+
+
 
     def start_keyboard_listener(self):
         """
@@ -110,6 +137,37 @@ class ObjectDetector:
                     writer.writerow([detection.class_name, f"{detection.confidence:.2f}", f"{detection.depth_mm:.2f}",
                                      f"{detection.depth_in:.2f}", f"{detection.x:.2f}", f"{detection.y:.2f}",
                                      f"{detection.z:.2f}", f"{detection.horizontal_angle:.2f}", detection.direction])
+
+
+
+    def serialize_detections(self, n):
+
+        detections = self.get_detections()
+
+        # Get the last n detection objects
+        last_n_detections = detections[-n:]
+
+        # Serialize each detection object and join with a delimiter
+        delimiter = ';'  # Ensure this delimiter does not appear in the data
+        serialized_data = delimiter.join([detection.serialize() for detection in last_n_detections])
+
+        # Convert the entire string to a byte array
+        return serialized_data.encode('utf-8')
+
+
+    def send_spi_data(self, data):
+
+        dets_to_send = self.serialize_detections(5)
+
+
+
+        # Convert data to a byte array if it's not
+        if not isinstance(dets_to_send, bytearray):
+            dets_to_send = bytearray(dets_to_send)
+        response = self.spi.xfer2(dets_to_send)  # Send data to Arduino via SPI
+        return response  # You can process the response if needed
+
+
 
     def get_vals(self, depth_image, color_image, depth_frame):
         """
@@ -270,6 +328,11 @@ class ObjectDetector:
     def start_detection(self):
         print("[INFO] Starting video stream...")
         self.dc.start_Streaming()
+
+
+        # Start GPIO listening in a separate thread
+        gpio_thread = threading.Thread(target=self.listen_for_request)
+        gpio_thread.start()
 
         # Start the serial listener thread
         # self.start_serial_listener('COM3', 9600)  # Adjust these parameters as needed
