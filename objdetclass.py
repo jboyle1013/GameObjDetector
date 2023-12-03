@@ -12,13 +12,18 @@ from detectionClass import Detection
 from pynput import keyboard
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
-CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox']
+CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'YellowLine', 'WhiteLine']
 CLASS_COLORS = {
     'BigBox': (235, 82, 52),
     'Nozzle': (235, 217, 52),
     'Rocket': (52, 235, 73),
-    'SmallBox': (230, 46, 208)
-}
+    'SmallBox': (230, 46, 208),
+    'StartZone' : (100, 110, 5),
+    'RedZone' : (255, 0, 0),
+    'BlueZone' : (0, 60, 200),
+    'YellowLine' : (100, 150, 20),
+    'WhiteLine' : (255, 255, 255)
+ }
 CONFIDENCE_THRESHOLD = 0.6
 MM_TO_INCHES = 25.4
 
