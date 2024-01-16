@@ -40,29 +40,29 @@ class ObjectDetector:
         self.dc.set_Settings_from_json(camera_settings_path)
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
-        # self.spi_setup()
-        # self.gpio_setup()
+        self.spi_setup()
+        self.gpio_setup()
 
 
-    # def gpio_setup(self):
-    #     self.requestPin = 17  # Replace with your GPIO pin number
-    #     GPIO.setmode(GPIO.BOARD)  # or GPIO.BCM depending on your pin numbering system
-    #     GPIO.setup(self.requestPin, GPIO.IN)
-    #
-    # def listen_for_request(self):
-    #     while True:
-    #         if GPIO.input(self.requestPin):
-    #             # If the signal is detected, send SPI data
-    #             self.send_spi_data()
-    #             # Add a small delay to debounce
-    #             time.sleep(0.1)
-    #
-    #
-    # def spi_setup(self):
-    #     self.spi = spidev.SpiDev()
-    #     self.spi.open(0, 0)  # Open SPI port 0, device (CS) 0
-    #     self.spi.mode = 0b00  # SPI mode
-    #     self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
+    def gpio_setup(self):
+        self.requestPin = 17  # Replace with your GPIO pin number
+        GPIO.setmode(GPIO.BOARD)  # or GPIO.BCM depending on your pin numbering system
+        GPIO.setup(self.requestPin, GPIO.IN)
+
+    def listen_for_request(self):
+        while True:
+            if GPIO.input(self.requestPin):
+                # If the signal is detected, send SPI data
+                self.send_spi_data()
+                # Add a small delay to debounce
+                time.sleep(0.1)
+
+
+    def spi_setup(self):
+        self.spi = spidev.SpiDev()
+        self.spi.open(0, 0)  # Open SPI port 0, device (CS) 0
+        self.spi.mode = 0b00  # SPI mode
+        self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
 
 
 
