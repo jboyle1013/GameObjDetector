@@ -10,11 +10,12 @@ from ultralytics import YOLO
 from NoMaskFoundException import NoMaskFound
 from detectionClass import Detection
 from pynput import keyboard
-import spidev
-import Jetson,GPIO
+# import spidev
+# import Jetson,GPIO
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
-CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'YellowLine', 'WhiteLine']
+# CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'WhiteLine', 'YellowLine']
+CLASS_NAMES = ['BigBox', 'BlueZone', 'GreenZone', 'Nozzle', 'RedZone', 'Rocket', 'SmallBox', 'StartZone', 'WhiteLine', 'YellowLine']
 CLASS_COLORS = {
     'BigBox': (235, 82, 52),
     'Nozzle': (235, 217, 52),
@@ -22,12 +23,13 @@ CLASS_COLORS = {
     'SmallBox': (230, 46, 208),
     'StartZone' : (100, 110, 5),
     'RedZone' : (255, 0, 0),
+    'GreenZone' : (0, 255, 0),
     'BlueZone' : (0, 60, 200),
     'YellowLine' : (100, 150, 20),
     'WhiteLine' : (255, 255, 255)
  }
 CONFIDENCE_THRESHOLD = 0.6
-MM_TO_INCHES = 25.4
+MM_TO_INCHES = 25.2
 
 
 class ObjectDetector:
@@ -38,29 +40,29 @@ class ObjectDetector:
         self.dc.set_Settings_from_json(camera_settings_path)
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
-        self.spi_setup()
-        self.gpio_setup()
+        # self.spi_setup()
+        # self.gpio_setup()
 
 
-    def gpio_setup(self):
-        self.requestPin = 17  # Replace with your GPIO pin number
-        GPIO.setmode(GPIO.BOARD)  # or GPIO.BCM depending on your pin numbering system
-        GPIO.setup(self.requestPin, GPIO.IN)
-
-    def listen_for_request(self):
-        while True:
-            if GPIO.input(self.requestPin):
-                # If the signal is detected, send SPI data
-                self.send_spi_data()
-                # Add a small delay to debounce
-                time.sleep(0.1)
-
-
-    def spi_setup(self):
-        self.spi = spidev.SpiDev()
-        self.spi.open(0, 0)  # Open SPI port 0, device (CS) 0
-        self.spi.mode = 0b00  # SPI mode
-        self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
+    # def gpio_setup(self):
+    #     self.requestPin = 17  # Replace with your GPIO pin number
+    #     GPIO.setmode(GPIO.BOARD)  # or GPIO.BCM depending on your pin numbering system
+    #     GPIO.setup(self.requestPin, GPIO.IN)
+    #
+    # def listen_for_request(self):
+    #     while True:
+    #         if GPIO.input(self.requestPin):
+    #             # If the signal is detected, send SPI data
+    #             self.send_spi_data()
+    #             # Add a small delay to debounce
+    #             time.sleep(0.1)
+    #
+    #
+    # def spi_setup(self):
+    #     self.spi = spidev.SpiDev()
+    #     self.spi.open(0, 0)  # Open SPI port 0, device (CS) 0
+    #     self.spi.mode = 0b00  # SPI mode
+    #     self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
 
 
 
@@ -331,8 +333,8 @@ class ObjectDetector:
 
 
         # Start GPIO listening in a separate thread
-        gpio_thread = threading.Thread(target=self.listen_for_request)
-        gpio_thread.start()
+        # gpio_thread = threading.Thread(target=self.listen_for_request)
+        # gpio_thread.start()
 
         # Start the serial listener thread
         # self.start_serial_listener('COM3', 9600)  # Adjust these parameters as needed
@@ -379,5 +381,5 @@ class ObjectDetector:
 
 # Usage of the class in the main program
 if __name__ == "__main__":
-    detector = ObjectDetector("train6/weights/best.pt", 'camerasettings/settings1.json')
+    detector = ObjectDetector("train11/weights/best.pt", 'camerasettings/settings1.json')
     detector.start_detection()
