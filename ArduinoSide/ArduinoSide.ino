@@ -1,75 +1,75 @@
 #include <SPI.h>
 
-// Pin definitions
-const int requestPin = 9; // GPIO pin used for sending the request signal
-const int ssPin = 10;     // Slave Select pin for SPI
+// GPIO pin for sending signal
+const int signalPin = 9;
 
 // SPI data buffer
-volatile byte spiBuffer[128]; // Adjust size as needed
+volatile byte spiBuffer[512];
 volatile int bufferIndex = 0;
 
 // Flag to indicate data reception
 volatile bool dataReceived = false;
 
 void setup() {
-    // Configure pin modes
-    pinMode(requestPin, OUTPUT);
-    pinMode(ssPin, INPUT_PULLUP);
+  // Initialize serial communication
+  Serial.begin(9600);
 
-    // Initialize SPI
-    SPI.begin();
-    SPI.setClockDivider(SPI_CLOCK_DIV8); // Adjust clock speed as needed
-    SPI.attachInterrupt();  // Attach interrupt for SPI communication
+  // Configure pin modes
+  pinMode(signalPin, OUTPUT);
 
-    // Initialize serial communication for debugging
-    Serial.begin(9600);
+  // Set MISO output, all others input
+  pinMode(MISO, OUTPUT);
+
+  // Turn on SPI in slave mode
+  SPCR |= _BV(SPE);
+
+  // Register SPI service routine
+  SPI.attachInterrupt();
+  Serial.print("Code Running");
 }
 
 // SPI interrupt routine
-ISR (SPI_STC_vect) {
-    byte data = SPDR; // Read the received data
-    spiBuffer[bufferIndex++] = data; // Store data in buffer
+ISR(SPI_STC_vect) {
+  byte receivedByte = SPDR;                 // Get the received data
+  spiBuffer[bufferIndex++] = receivedByte;  // Store data in buffer
 
-    // Check for end of data transmission (e.g., newline character)
-    if (data == '\n') {
-        dataReceived = true;
-        bufferIndex = 0; // Reset buffer index
-    }
+  // Send a response back to the master
+  byte responseByte = receivedByte + 1;     // Simple response (increment received byte)
+  SPDR = responseByte;                      // Load the response byte into the SPI Data Register
+
+  // Check for end of data transmission or buffer overflow
+  if (receivedByte == '\n' || bufferIndex >= sizeof(spiBuffer)) {
+    dataReceived = true;
+    bufferIndex = 0;  // Reset buffer index for next message
+  }
 }
 
 void loop() {
-    // Send request signal periodically
-    digitalWrite(requestPin, HIGH);
-    Serial.println("Sending Request");
-    delay(50); // Short delay to ensure signal is read
-    digitalWrite(requestPin, LOW);
+  // Send signal periodically
+  digitalWrite(signalPin, HIGH);
+  delay(50);  // Signal duration
+  digitalWrite(signalPin, LOW);
 
-    // Wait for some time before next request
-    delay(50000); // Adjust delay as needed
+  // Wait before sending the signal again
+  delay(5000);  // Adjust as needed
 
-    // Check if data has been received
-    if (dataReceived) {
-        // Process received data
-        Serial.println("Recieved Data");
-        processReceivedData();
-        dataReceived = false; // Reset flag
-    }
+  // Check if data has been received
+  if (dataReceived) {
+    // Process received data
+    processReceivedData();
+    dataReceived = false;  // Reset flag for next reception
+  }
 }
 
 void processReceivedData() {
-    // Convert the received bytes back into string
-    String receivedString = "";
-    for (int i = 0; i < sizeof(spiBuffer); i++) {
-        if (spiBuffer[i] == '\0' || spiBuffer[i] == '\n') break;
-        receivedString += (char)spiBuffer[i];
-    }
+  // Print the received data to the serial monitor
+  Serial.print("Received SPI Data: ");
+  for (int i = 0; i < sizeof(spiBuffer); ++i) {
+    if (spiBuffer[i] == '\0' || spiBuffer[i] == '\n') break;  // End of data
+    Serial.print((char)spiBuffer[i]);
+  }
+  Serial.println();
 
-    // Debug: Print the received string
-    Serial.println(receivedString);
-
-    // Reset the buffer
-    memset(spiBuffer, 0, sizeof(spiBuffer));
-    
-    // TODO: Add your code here to split and parse the received string
-    // Example: Split the string using the delimiter and interpret each part
+  // Reset the buffer for the next message
+  memset(spiBuffer, 0, sizeof(spiBuffer));
 }
