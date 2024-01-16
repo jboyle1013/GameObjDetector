@@ -12,22 +12,24 @@ from detectionClass import Detection
 from pynput import keyboard
 import spidev
 import Jetson.GPIO as GPIO
+import time
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
 # CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'WhiteLine', 'YellowLine']
-CLASS_NAMES = ['BigBox', 'BlueZone', 'GreenZone', 'Nozzle', 'RedZone', 'Rocket', 'SmallBox', 'StartZone', 'WhiteLine', 'YellowLine']
+CLASS_NAMES = ['BigBox', 'BlueZone', 'GreenZone', 'Nozzle', 'RedZone',
+               'Rocket', 'SmallBox', 'StartZone', 'WhiteLine', 'YellowLine']
 CLASS_COLORS = {
     'BigBox': (235, 82, 52),
     'Nozzle': (235, 217, 52),
     'Rocket': (52, 235, 73),
     'SmallBox': (230, 46, 208),
-    'StartZone' : (100, 110, 5),
-    'RedZone' : (255, 0, 0),
-    'GreenZone' : (0, 255, 0),
-    'BlueZone' : (0, 60, 200),
-    'YellowLine' : (100, 150, 20),
-    'WhiteLine' : (255, 255, 255)
- }
+    'StartZone': (100, 110, 5),
+    'RedZone': (255, 0, 0),
+    'GreenZone': (0, 255, 0),
+    'BlueZone': (0, 60, 200),
+    'YellowLine': (100, 150, 20),
+    'WhiteLine': (255, 255, 255)
+}
 CONFIDENCE_THRESHOLD = 0.6
 MM_TO_INCHES = 25.2
 
@@ -43,28 +45,26 @@ class ObjectDetector:
         self.spi_setup()
         self.gpio_setup()
 
-
     def gpio_setup(self):
         self.requestPin = 22  # Replace with your GPIO pin number
-        GPIO.setmode(GPIO.BOARD)  # or GPIO.BCM depending on your pin numbering system
+        # or GPIO.BCM depending on your pin numbering system
+        GPIO.setmode(GPIO.BOARD)
         GPIO.setup(self.requestPin, GPIO.IN)
 
     def listen_for_request(self):
         while True:
             if GPIO.input(self.requestPin):
-		print("GPIO Request Recieved")
-		# If the signal is detected, send SPI data
-		self.send_spi_data()
-		# Add a small delay to debounce
-		time.sleep(0.1)
-            	
+                print("GPIO Request Recieved")
+                # If the signal is detected, send SPI data
+                self.send_spi_data()
+                # Add a small delay to debounce
+                time.sleep(0.1)
+
     def spi_setup(self):
         self.spi = spidev.SpiDev()
-        self.spi.open(0, 0)  # Open SPI port 0, device (CS) 0
+        self.spi.open(0, 1)  # Open SPI port 0, device (CS) 0
         self.spi.mode = 0b00  # SPI mode
         self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
-
-
 
     def start_keyboard_listener(self):
         """
@@ -88,10 +88,12 @@ class ObjectDetector:
                         line = ser.readline().decode('utf-8').strip()
                         if line == "WRITE_CSV":
                             print("Arduino Command: Writing to CSV")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(
+                                self.detections, "output.csv")
                         elif line == "QUIT":
                             print("Arduino Command: Quitting")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(
+                                self.detections, "output.csv")
                             self.dc.release()
                             break
 
@@ -100,10 +102,12 @@ class ObjectDetector:
 
     def process_detection(self, class_name, confidence, robot_Vals):
 
-        depth_in, depth, deproj, height, horizontal_angle, direction = [val for val in robot_Vals]
+        depth_in, depth, deproj, height, horizontal_angle, direction = [
+            val for val in robot_Vals]
         x, y, z = [val for val in deproj]
         # Create a Detection instance
-        detection = Detection(class_name, confidence, depth, depth_in, x, y, z, horizontal_angle, direction)
+        detection = Detection(class_name, confidence, depth,
+                              depth_in, x, y, z, horizontal_angle, direction)
 
         # Add the detection to the thread-safe list
         self.add_detection(detection)
@@ -140,8 +144,6 @@ class ObjectDetector:
                                      f"{detection.depth_in:.2f}", f"{detection.x:.2f}", f"{detection.y:.2f}",
                                      f"{detection.z:.2f}", f"{detection.horizontal_angle:.2f}", detection.direction])
 
-
-
     def serialize_detections(self, n):
 
         detections = self.get_detections()
@@ -151,25 +153,36 @@ class ObjectDetector:
 
         # Serialize each detection object and join with a delimiter
         delimiter = ';'  # Ensure this delimiter does not appear in the data
-        serialized_data = delimiter.join([detection.serialize() for detection in last_n_detections])
+        serialized_data = delimiter.join(
+            [detection.serialize() for detection in last_n_detections])
 
+        serialized_data = serialized_data + '\n'
         # Convert the entire string to a byte array
         return serialized_data.encode('utf-8')
-
 
     def send_spi_data(self):
 
         dets_to_send = self.serialize_detections(5)
-
-
-
-        # Convert data to a byte array if it's not
-        if not isinstance(dets_to_send, bytearray):
+        response = ""
+        try:
+            # Convert data to a byte array if it's not
             dets_to_send = bytearray(dets_to_send)
-        response = self.spi.xfer2(dets_to_send)  # Send data to Arduino via SPI
+            # Send data to Arduino via SPI
+            print([0x01, 0x02, 0x03])
+            print("Sending Data")
+            response = self.spi.xfer([0x01, 0x02, 0x03])
+        except:
+            if not isinstance(dets_to_send, bytearray):
+                dets_to_send = bytearray("No Detections")
+            # Send data to Arduino via SPI
+            sendstr = "No Detections"
+            sendbyt = sendstr.encode('utf-8')
+            dets_to_send = sendbyt
+            print([0x01, 0x02, 0x03])
+            print("Sending Data")
+            response = self.spi.xfer([0x01, 0x02, 0x03])
+        print(response)
         return response  # You can process the response if needed
-
-
 
     def get_vals(self, depth_image, color_image, depth_frame):
         """
@@ -187,23 +200,30 @@ class ObjectDetector:
                     class_name = CLASS_NAMES[int(box.cls[0])]
                     if box.conf[0] > CONFIDENCE_THRESHOLD:
                         try:
-                            robot_Vals = self.process_mask(mask, class_name, color_image, depth_image)
+                            robot_Vals = self.process_mask(
+                                mask, class_name, color_image, depth_image)
                         except Exception as e:
                             print("An error occurred:", e)
                             print("Traceback:", traceback.format_exc())
-                            robot_Vals = self.process_box(box, class_name, color_image, depth_image)
+                            robot_Vals = self.process_box(
+                                box, class_name, color_image, depth_image)
                         finally:
-                            self.process_detection(class_name, box.conf[0], robot_Vals)
-                            self.draw_and_print_info(class_name, box.conf[0], robot_Vals, box, color_image)
+                            self.process_detection(
+                                class_name, box.conf[0], robot_Vals)
+                            # self.draw_and_print_info(
+                            # class_name, box.conf[0], robot_Vals, box, color_image)
             except Exception as e:
                 print("An error occurred:", e)
                 print("Traceback:", traceback.format_exc())
                 for box in boxes:
                     if box.conf[0] > CONFIDENCE_THRESHOLD:
                         class_name = CLASS_NAMES[int(box.cls[0])]
-                        robot_Vals = self.process_box(box, class_name, color_image, depth_image)
-                        self.process_detection(class_name, box.conf[0], robot_Vals)
-                        self.draw_and_print_info(class_name, box.conf[0], robot_Vals, box, color_image)
+                        robot_Vals = self.process_box(
+                            box, class_name, color_image, depth_image)
+                        self.process_detection(
+                            class_name, box.conf[0], robot_Vals)
+                        # self.draw_and_print_info(
+                        # class_name, box.conf[0], robot_Vals, box, color_image)
 
     # Calculates average depth information within a bounding box in the depth image
     def calculate_depth_info_box(self, depth_image, bbox):
@@ -250,7 +270,8 @@ class ObjectDetector:
     # Draws information on the color image and prints details to the console
     def draw_and_print_info(self, className, confidence, robot_Vals, box, color_image):
         # Unpack values calculated from depth information
-        depth_in, depth, deproj, height, horizontal_angle, direction = [val for val in robot_Vals]
+        depth_in, depth, deproj, height, horizontal_angle, direction = [
+            val for val in robot_Vals]
 
         # Coordinates for the bounding box
         x1, y1, x2, y2 = map(int, box.xyxy[0])
@@ -265,11 +286,13 @@ class ObjectDetector:
         print(f"Distance ---> {depth:.3f} mm", )
 
         # Print deprojected coordinates and additional calculated details
-        print(f"RS Deproj  3D Coordinates: (X, Y, Z) = ({deproj[0]}, {deproj[1]}, {deproj[2]})")
+        print(
+            f"RS Deproj  3D Coordinates: (X, Y, Z) = ({deproj[0]}, {deproj[1]}, {deproj[2]})")
         print(f"Actual Height? Calculated from Deproj = {height}")
 
         print(f"Direction from Deproj = {direction}")
-        print(f"Calculated Angle from Deproj = {horizontal_angle} Degrees to the {direction}")
+        print(
+            f"Calculated Angle from Deproj = {horizontal_angle} Degrees to the {direction}")
         print(f"<----------------------------------------------------->\n\n")
 
         # Draw text on the color image for visual display
@@ -278,8 +301,10 @@ class ObjectDetector:
         bbottom = [x1, y2 + 35]
         cv2.putText(color_image, f"{className}: {confidence * 100:.0f}%", org, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0),
                     2)
-        cv2.putText(color_image, f"Distance: {depth_in:.3f} in", bottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
-        cv2.putText(color_image, f"Distance: {depth:.3f} mm", bbottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
+        cv2.putText(color_image, f"Distance: {depth_in:.3f} in",
+                    bottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
+        cv2.putText(color_image, f"Distance: {depth:.3f} mm",
+                    bbottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
 
     # Processes a mask to calculate depth and positional information
     def process_mask(self, mask, class_name, color_image, depth_image):
@@ -294,16 +319,20 @@ class ObjectDetector:
         mask_area = mask_image > 0
         y_coords, x_coords = np.where(mask_area)
         if not x_coords.size or not y_coords.size:
-            raise NoMaskFound(class_name)  # Raise an exception if no valid mask area is found
+            # Raise an exception if no valid mask area is found
+            raise NoMaskFound(class_name)
 
         # Calculate centroid of the mask and depth information
         centerx, centery = np.mean(x_coords), np.mean(y_coords)
-        depth, depth_in = self.calculate_depth_info_mask(depth_image, mask_area)
+        depth, depth_in = self.calculate_depth_info_mask(
+            depth_image, mask_area)
         # Calculate additional information based on deprojection
-        deproj, height, horizontal_angle, direction = self.deproject_and_calculate(centerx, centery, depth)
+        deproj, height, horizontal_angle, direction = self.deproject_and_calculate(
+            centerx, centery, depth)
 
         # Draw contours based on the mask and return calculated values
-        contours, _ = cv2.findContours(mask_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            mask_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         cv2.drawContours(color_image, contours, -1, classColor, 3)
         return [depth_in, depth, deproj, height, horizontal_angle, direction]
 
@@ -321,7 +350,8 @@ class ObjectDetector:
         depth, depth_in = self.calculate_depth_info_box(depth_image, box)
 
         # Calculate additional information based on deprojection
-        deproj, height, horizontal_angle, direction = self.deproject_and_calculate(centerx, centery, depth)
+        deproj, height, horizontal_angle, direction = self.deproject_and_calculate(
+            centerx, centery, depth)
 
         # Draw the bounding box and return calculated values
         cv2.rectangle(color_image, (x1, y1), (x2, y2), classColor, 6)
@@ -330,7 +360,6 @@ class ObjectDetector:
     def start_detection(self):
         print("[INFO] Starting video stream...")
         self.dc.start_Streaming()
-
 
         # Start GPIO listening in a separate thread
         gpio_thread = threading.Thread(target=self.listen_for_request)
@@ -350,11 +379,7 @@ class ObjectDetector:
             self.get_vals(depth_frame, color_frame, depth_image)
 
             # Display the frames
-            cv2.namedWindow('Depth Color Frame', cv2.WINDOW_NORMAL)
-            cv2.namedWindow('Depth Frame', cv2.WINDOW_NORMAL)
             cv2.namedWindow('Color Frame', cv2.WINDOW_NORMAL)
-            cv2.imshow("Depth Color Frame", depth_colormap)
-            cv2.imshow("Depth Frame", depth_frame)
             cv2.imshow("Color Frame", color_frame)
 
             key = cv2.waitKey(1)
@@ -374,6 +399,7 @@ class ObjectDetector:
             if key == keyboard.Key.esc or key.char in ['q', 'Q']:
                 self.write_detections_to_csv(self.detections, "output.csv")
                 self.dc.release()  # Stop listener
+                self.spi.close()
 
         except AttributeError:
             pass
@@ -381,5 +407,6 @@ class ObjectDetector:
 
 # Usage of the class in the main program
 if __name__ == "__main__":
-    detector = ObjectDetector("train11/weights/best.pt", 'camerasettings/settings1.json')
+    detector = ObjectDetector(
+        "train6/weights/best.pt", 'camerasettings/settings1.json')
     detector.start_detection()
