@@ -1,10 +1,12 @@
-import cv2
 import math
-import numpy as np
 import traceback
-from realsense_obj import DepthCamera  # Import DepthCamera class for depth sensing
+
+import cv2
+import numpy as np
 from ultralytics import YOLO  # Import YOLO object detection model
+
 from NoMaskFoundException import NoMaskFound  # Custom exception class
+from realsense_obj import DepthCamera  # Import DepthCamera class for depth sensing
 
 # Constants for camera setup and object detection
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
@@ -22,6 +24,7 @@ MM_TO_INCHES = 25.4  # Conversion factor from millimeters to inches
 model = YOLO("train6/weights/best.pt")  # Load trained YOLO model
 
 dc = DepthCamera()  # Initialize the depth camera
+
 
 def get_vals(depth_image, color_image, depth_frame):
     """
@@ -55,7 +58,6 @@ def get_vals(depth_image, color_image, depth_frame):
                 draw_and_print_info(class_name, box.conf[0], robot_Vals, box, color_image)
 
 
-
 # Calculates average depth information within a bounding box in the depth image
 # Calculates average depth information within a bounding box in the depth image
 def calculate_depth_info_box(depth_image, bbox):
@@ -74,9 +76,10 @@ def calculate_depth_info_box(depth_image, bbox):
             depth_list.append(depth_value)
 
     # Calculate average depth
-    depth = sum(depth_list)/len(depth_list)
+    depth = sum(depth_list) / len(depth_list)
 
     return depth, depth / MM_TO_INCHES  # Return depth in both mm and inches
+
 
 # Calculates average depth information for a given mask area
 def calculate_depth_info_mask(depth_image, mask_area):
@@ -86,6 +89,7 @@ def calculate_depth_info_mask(depth_image, mask_area):
     depth = np.mean(depth_values[depth_values > 0])
     return depth, depth / MM_TO_INCHES
 
+
 # Deprojects pixel coordinates to 3D space and calculates additional info
 def deproject_and_calculate(centerx, centery, depth):
     # Deprojects pixel to point in 3D space
@@ -93,12 +97,13 @@ def deproject_and_calculate(centerx, centery, depth):
     # Calculate height with respect to camera height
     height = CAMERA_HEIGHT - deproj[1]
     # Calculate the direct distance from the camera to the point
-    calcdistfromdproj = math.sqrt(deproj[0]**2 + height**2)
+    calcdistfromdproj = math.sqrt(deproj[0] ** 2 + height ** 2)
     # Determine the horizontal angle to the point
     horizontal_angle = math.degrees(math.atan2(deproj[0], deproj[2]))
     # Determine the direction (left or right) based on the deprojected X coordinate
     direction = "left" if deproj[0] < 0 else "right"
     return deproj, height, calcdistfromdproj, horizontal_angle, direction
+
 
 # Draws information on the color image and prints details to the console
 def draw_and_print_info(className, confidence, robot_Vals, box, color_image):
@@ -131,6 +136,7 @@ def draw_and_print_info(className, confidence, robot_Vals, box, color_image):
     cv2.putText(color_image, f"Distance: {depth_in:.3f} in", bottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
     cv2.putText(color_image, f"Distance: {depth:.3f} mm", bbottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
 
+
 # Processes a mask to calculate depth and positional information
 def process_mask(mask, class_name, color_image, depth_image):
     classColor = CLASS_COLORS[class_name]
@@ -157,6 +163,7 @@ def process_mask(mask, class_name, color_image, depth_image):
     cv2.drawContours(color_image, contours, -1, classColor, 3)
     return [depth_in, depth, deproj, calcdistfromdproj, height, horizontal_angle, direction]
 
+
 # Processes a bounding box to calculate depth and positional information
 def process_box(box, class_name, color_image, depth_image):
     classColor = CLASS_COLORS[class_name]
@@ -164,8 +171,8 @@ def process_box(box, class_name, color_image, depth_image):
     x1, y1, x2, y2 = map(int, box.xyxy[0])
 
     # Calculate the center of the bounding box
-    centerx = int((x2 + x1)/2)
-    centery = int((y2 + y1)/2)
+    centerx = int((x2 + x1) / 2)
+    centery = int((y2 + y1) / 2)
 
     # Calculate depth information for the bounding box
     depth, depth_in = calculate_depth_info_box(depth_image, box)

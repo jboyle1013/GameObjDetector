@@ -40,15 +40,17 @@ ISR (SPI_STC_vect) {
 void loop() {
     // Send request signal periodically
     digitalWrite(requestPin, HIGH);
+    Serial.println("Sending Request");
     delay(50); // Short delay to ensure signal is read
     digitalWrite(requestPin, LOW);
 
     // Wait for some time before next request
-    delay(5000); // Adjust delay as needed
+    delay(50000); // Adjust delay as needed
 
     // Check if data has been received
     if (dataReceived) {
         // Process received data
+        Serial.println("Recieved Data");
         processReceivedData();
         dataReceived = false; // Reset flag
     }
