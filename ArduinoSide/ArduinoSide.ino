@@ -1,7 +1,7 @@
 #include <SPI.h>
 
 // Pin definitions
-const int requestPin = 4; // GPIO pin used for sending the request signal
+const int requestPin = 9; // GPIO pin used for sending the request signal
 const int ssPin = 10;     // Slave Select pin for SPI
 
 // SPI data buffer
