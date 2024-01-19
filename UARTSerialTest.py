@@ -1,4 +1,6 @@
 import serial
+import time
+
 
 # Open the serial port at 9600 baud
 ser = serial.Serial(
@@ -19,6 +21,9 @@ try:
                 str_to_send = "Data From Jetson\n"
                 print(f"Sending String: {str_to_send}")
                 ser.write(str_to_send.encode())
+                time.sleep(1)  # Delay for 1 second
+
+        time.sleep(2)  # Delay for 1 second
 
 except KeyboardInterrupt:
     ser.close()
