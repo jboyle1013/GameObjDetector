@@ -11,7 +11,7 @@ try:
             print(f"Arduino says: {incoming}")
             # Respond to the request
             if incoming == "Request":
-                ser.write("Data from Jetson".encode())
+                ser.write("Data from Jetson\n".encode())
 
 except KeyboardInterrupt:
     ser.close()
