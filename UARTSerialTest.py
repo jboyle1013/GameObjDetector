@@ -1,8 +1,13 @@
 import serial
 
 # Open the serial port at 9600 baud
-ser = serial.Serial('/dev/ttyTHS1', 9600)  # Adjust the port if necessary
-
+ser = serial.Serial(
+    port='/dev/ttyTHS1',  # Replace with your serial port
+    baudrate=9600,
+    parity=serial.PARITY_NONE,
+    stopbits=serial.STOPBITS_ONE,
+    bytesize=serial.EIGHTBITS
+)
 try:
     while True:
         if ser.inWaiting() > 0:

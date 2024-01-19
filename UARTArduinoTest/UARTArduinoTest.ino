@@ -1,19 +1,29 @@
 void setup() {
-  Serial.begin(9600); // Start the serial communication
+  Serial.begin(9600, SERIAL_8N1);
 }
 
 void loop() {
   Serial.println("Request"); // Send a request to the Jetson Nano
 
-  // Wait for a response
+  unsigned long startTime = millis(); // Record the start time
+  bool timeoutOccurred = false;
+
+  // Wait for a response or until timeout
   while (!Serial.available()) {
-    // Optional: add a delay or a timeout if needed
+    if (millis() - startTime > 2000) { // 2 seconds timeout
+      timeoutOccurred = true;
+      break; // Break the loop if timeout occurs
+    }
   }
 
-  // Read the response
-  String response = Serial.readStringUntil('\n');
-  Serial.print("Received from Jetson: ");
-  Serial.println(response);
+  if (!timeoutOccurred) {
+    // Read the response
+    String response = Serial.readStringUntil('\n');
+    Serial.print("Received from Jetson: ");
+    Serial.println(response);
+  } else {
+    Serial.println("No response received, sending another request.");
+  }
 
-  delay(2000); // Delay between requests
+  delay(3000); // Delay between requests
 }
