@@ -10,8 +10,8 @@ from ultralytics import YOLO
 from NoMaskFoundException import NoMaskFound
 from detectionClass import Detection
 from pynput import keyboard
-import spidev
-import Jetson.GPIO as GPIO
+# import spidev
+# import Jetson.GPIO as GPIO
 import time
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
@@ -42,29 +42,29 @@ class ObjectDetector:
         self.dc.set_Settings_from_json(camera_settings_path)
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
-        self.spi_setup()
-        self.gpio_setup()
+        # self.spi_setup()
+        # self.gpio_setup()
 
-    def gpio_setup(self):
-        self.requestPin = 22  # Replace with your GPIO pin number
-        # or GPIO.BCM depending on your pin numbering system
-        GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(self.requestPin, GPIO.IN)
-
-    def listen_for_request(self):
-        while True:
-            if GPIO.input(self.requestPin):
-                print("GPIO Request Recieved")
-                # If the signal is detected, send SPI data
-                self.send_spi_data()
-                # Add a small delay to debounce
-                time.sleep(0.1)
-
-    def spi_setup(self):
-        self.spi = spidev.SpiDev()
-        self.spi.open(0, 1)  # Open SPI port 0, device (CS) 0
-        self.spi.mode = 0b00  # SPI mode
-        self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
+    # def gpio_setup(self):
+    #     self.requestPin = 22  # Replace with your GPIO pin number
+    #     # or GPIO.BCM depending on your pin numbering system
+    #     GPIO.setmode(GPIO.BOARD)
+    #     GPIO.setup(self.requestPin, GPIO.IN)
+    #
+    # def listen_for_request(self):
+    #     while True:
+    #         if GPIO.input(self.requestPin):
+    #             print("GPIO Request Recieved")
+    #             # If the signal is detected, send SPI data
+    #             self.send_spi_data()
+    #             # Add a small delay to debounce
+    #             time.sleep(0.1)
+    #
+    # def spi_setup(self):
+    #     self.spi = spidev.SpiDev()
+    #     self.spi.open(0, 1)  # Open SPI port 0, device (CS) 0
+    #     self.spi.mode = 0b00  # SPI mode
+    #     self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
 
     def start_keyboard_listener(self):
         """
@@ -362,8 +362,8 @@ class ObjectDetector:
         self.dc.start_Streaming()
 
         # Start GPIO listening in a separate thread
-        gpio_thread = threading.Thread(target=self.listen_for_request)
-        gpio_thread.start()
+        # gpio_thread = threading.Thread(target=self.listen_for_request)
+        # gpio_thread.start()
 
         # Start the serial listener thread
         # self.start_serial_listener('COM3', 9600)  # Adjust these parameters as needed

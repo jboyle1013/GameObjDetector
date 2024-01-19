@@ -1,28 +1,29 @@
 #include <SPI.h>
 
-volatile byte receivedData;
+volatile byte receivedByte;
 volatile bool dataReceived = false;
 
 void setup() {
-  // Set MISO output, all others input
-  pinMode(MISO, OUTPUT);
+  Serial.begin(9600);
+  pinMode(MISO, OUTPUT);  // MISO pin set as output
 
   // Turn on SPI in slave mode
-  SPCR |= _BV(SPE);
+  SPCR |= _BV(SPE);   // SPI Enable
+  SPCR |= _BV(SPIE);  // SPI Interrupt Enable
 
-  // Register SPI service routine
-  SPI.attachInterrupt();
+  Serial.println("SPI Slave Initialized");
 }
 
-// SPI interrupt routine
-ISR (SPI_STC_vect) {
-  receivedData = SPDR; // Get the received data
-  dataReceived = true;
+ISR(SPI_STC_vect) {         // SPI interrupt routine
+  receivedByte = SPDR;      // Read received byte
+  dataReceived = true;      // Set flag indicating data was received
+  SPDR = receivedByte + 1;  // Increment byte and write back to SPI Data Register
 }
 
 void loop() {
   if (dataReceived) {
-    SPDR = receivedData + 1; // Increment received data and send it back
-    dataReceived = false;
+    Serial.print("Received: ");
+    Serial.println(receivedByte);
+    dataReceived = false;  // Reset the flag
   }
 }
