@@ -210,8 +210,8 @@ class ObjectDetector:
                         finally:
                             self.process_detection(
                                 class_name, box.conf[0], robot_Vals)
-                            # self.draw_and_print_info(
-                            # class_name, box.conf[0], robot_Vals, box, color_image)
+                            self.draw_and_print_info(
+                            class_name, box.conf[0], robot_Vals, box, color_image)
             except Exception as e:
                 print("An error occurred:", e)
                 print("Traceback:", traceback.format_exc())
@@ -222,8 +222,8 @@ class ObjectDetector:
                             box, class_name, color_image, depth_image)
                         self.process_detection(
                             class_name, box.conf[0], robot_Vals)
-                        # self.draw_and_print_info(
-                        # class_name, box.conf[0], robot_Vals, box, color_image)
+                        self.draw_and_print_info(
+                        class_name, box.conf[0], robot_Vals, box, color_image)
 
     # Calculates average depth information within a bounding box in the depth image
     def calculate_depth_info_box(self, depth_image, bbox):
@@ -408,5 +408,5 @@ class ObjectDetector:
 # Usage of the class in the main program
 if __name__ == "__main__":
     detector = ObjectDetector(
-        "train6/weights/best.pt", 'camerasettings/settings1.json')
+        "train11/weights/best.pt", 'camerasettings/settings1.json')
     detector.start_detection()
