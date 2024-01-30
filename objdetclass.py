@@ -1,3 +1,8 @@
+"""
+This is the File Being Used for the Detections
+"""
+
+
 import cv2
 import math
 import numpy as np
@@ -41,6 +46,7 @@ class ObjectDetector:
         self.dc.set_Settings_from_json(camera_settings_path)
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
+        self.running = True
 
     def start_keyboard_listener(self):
         """
@@ -59,7 +65,7 @@ class ObjectDetector:
 
         def serial_listener():
             with serial.Serial(port, baud_rate) as ser:
-                while True:
+                while self.running:
                     if ser.in_waiting:
                         line = ser.readline().decode('utf-8').strip()
                         if line == "WRITE_CSV":
@@ -318,7 +324,7 @@ class ObjectDetector:
         self.dc.start_Streaming()
 
         # Start the serial listener thread
-        # self.start_serial_listener('\ttyUSB0', 9600)  # Adjust these parameters as needed
+        self.start_serial_listener('/dev/ttyUSB0', 9600)  # Adjust these parameters as needed
 
         # Start the keyboard listener thread
         self.start_keyboard_listener()
@@ -341,7 +347,7 @@ class ObjectDetector:
                 self.write_detections_to_csv(self.detections, "output.csv")
             if key == 27:
                 self.write_detections_to_csv(self.detections, "output.csv")
-                self.dc.release() # Stop Camera
+                self.dc.release()  # Stop Camera
                 # self.dc.stop_streaming() # Stop Camera
                 break
 
@@ -349,6 +355,11 @@ class ObjectDetector:
         self.accel_data, self.gyro_data = self.dc.get_imu_data()
         print(f"Intel Realsense Accelerometer Data: {self.accel_data}")
         print(f"Intel Realsense Gyroscope Data: {self.gyro_data}")
+
+    def stop_all_listeners(self):
+        self.running = False  # This will stop the serial listener loop
+        if hasattr(self, 'listener'):
+            self.listener.stop()  # Stop the keyboard listener
 
     def on_press(self, key):
         try:
@@ -360,7 +371,9 @@ class ObjectDetector:
             if key == keyboard.Key.esc or key.char in ['q', 'Q']:
                 self.write_detections_to_csv(self.detections, "output.csv")
                 # self.dc.stop_streaming() # Stop Camera
-                self.dc.release() # Stop Camera
+                self.dc.release()  # Stop Camera
+                self.stop_all_listeners()
+                print("Listeners stopped.")
 
         except AttributeError:
             pass

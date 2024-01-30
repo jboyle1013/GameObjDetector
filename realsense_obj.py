@@ -1,3 +1,10 @@
+"""
+This is the code we are currently using for the RealSense Camera in the objdetclass.py file.
+The DepthCamera class encapsulates the necessary methods for camera setup,
+streaming, frame processing, and advanced configuration.
+"""
+
+
 import json
 import numpy as np
 import pyrealsense2 as rs

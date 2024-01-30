@@ -12,7 +12,7 @@ void setup() {
 void loop() {
   // Send a request every 10 seconds
   delay(10000);
-  mySerial.println("Request");
+  mySerial.println("REQUEST");
 
   // Wait for a response with a timeout
   unsigned long startTime = millis();

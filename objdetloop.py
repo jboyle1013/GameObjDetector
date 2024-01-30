@@ -1,3 +1,8 @@
+"""
+Old Test Loop Version of objdetclass.py
+"""
+
+
 import math
 import traceback
 
