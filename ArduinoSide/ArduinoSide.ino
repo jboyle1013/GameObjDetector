@@ -1,75 +1,61 @@
-#include <SPI.h>
+#include <SoftwareSerial.h>
 
-// GPIO pin for sending signal
-const int signalPin = 9;
-
-// SPI data buffer
-volatile byte spiBuffer[512];
-volatile int bufferIndex = 0;
-
-// Flag to indicate data reception
-volatile bool dataReceived = false;
+SoftwareSerial mySerial(10, 11); // RX, TX pins
 
 void setup() {
-  // Initialize serial communication
+  // Open serial communications:
   Serial.begin(9600);
-
-  // Configure pin modes
-  pinMode(signalPin, OUTPUT);
-
-  // Set MISO output, all others input
-  pinMode(MISO, OUTPUT);
-
-  // Turn on SPI in slave mode
-  SPCR |= _BV(SPE);
-
-  // Register SPI service routine
-  SPI.attachInterrupt();
-  Serial.print("Code Running");
-}
-
-// SPI interrupt routine
-ISR(SPI_STC_vect) {
-  byte receivedByte = SPDR;                 // Get the received data
-  spiBuffer[bufferIndex++] = receivedByte;  // Store data in buffer
-
-  // Send a response back to the master
-  byte responseByte = receivedByte + 1;     // Simple response (increment received byte)
-  SPDR = responseByte;                      // Load the response byte into the SPI Data Register
-
-  // Check for end of data transmission or buffer overflow
-  if (receivedByte == '\n' || bufferIndex >= sizeof(spiBuffer)) {
-    dataReceived = true;
-    bufferIndex = 0;  // Reset buffer index for next message
-  }
+  // Set the data rate for the SoftwareSerial port
+  mySerial.begin(9600);
 }
 
 void loop() {
-  // Send signal periodically
-  digitalWrite(signalPin, HIGH);
-  delay(50);  // Signal duration
-  digitalWrite(signalPin, LOW);
+  // Send a request every 10 seconds
+  delay(10000);
+  mySerial.println("Request");
 
-  // Wait before sending the signal again
-  delay(5000);  // Adjust as needed
+  // Wait for a response with a timeout
+  unsigned long startTime = millis();
+  while (!mySerial.available() && millis() - startTime < 5000) {
+    // Waiting for response with 5 seconds timeout
+  }
 
-  // Check if data has been received
-  if (dataReceived) {
-    // Process received data
-    processReceivedData();
-    dataReceived = false;  // Reset flag for next reception
+  // Read and parse the response
+  if (mySerial.available()) {
+    String data = mySerial.readStringUntil('\n');
+    parseDetectionData(data);
   }
 }
 
-void processReceivedData() {
-  // Print the received data to the serial monitor
-  Serial.print("Received SPI Data: ");
-  for (int i = 0; i < sizeof(spiBuffer); ++i) {
-    if (spiBuffer[i] == '\0' || spiBuffer[i] == '\n') break;  // End of data
-    Serial.print((char)spiBuffer[i]);
-  }
-  Serial.println();
+void parseDetectionData(String data) {
+  // The data is expected to be in the format:
+  // "class_name,confidence,depth_mm,depth_in,x,y,z,horizontal_angle,direction\n"
 
-  // Reset the buffer for the next message
-  memset(spiBuffer, 0, sizeof(spiBuffer));
+  int index = 0;
+  while (index != -1) {
+    // Find the next comma in the string
+    int nextIndex = data.indexOf(',', index);
+    if (nextIndex == -1) nextIndex = data.length(); // Last item in the string
+
+    String item = data.substring(index, nextIndex);
+    processDataItem(index / 9, index % 9, item); // Assumes 9 items per detection
+
+    if (nextIndex == data.length()) break; // Exit loop if end of string is reached
+    index = nextIndex + 1;
+  }
+}
+
+void processDataItem(int detectionNumber, int itemNumber, String item) {
+  switch (itemNumber) {
+    case 0: Serial.print("Detection "); Serial.print(detectionNumber); Serial.print(" - Class Name: "); break;
+    case 1: Serial.print("Confidence: "); break;
+    case 2: Serial.print("Depth (mm): "); break;
+    case 3: Serial.print("Depth (in): "); break;
+    case 4: Serial.print("X: "); break;
+    case 5: Serial.print("Y: "); break;
+    case 6: Serial.print("Z: "); break;
+    case 7: Serial.print("Horizontal Angle: "); break;
+    case 8: Serial.print("Direction: "); break;
+  }
+  Serial.println(item);
 }

@@ -60,6 +60,7 @@ class DepthCamera:
     def configure_frame(self):
         # Get stream profile and camera intrinsics
         self.profile = self.pipeline.get_active_profile()
+        sensors = self.pipeline.get_active_profile().get_device().sensors
         self.depth_profile = rs.video_stream_profile(self.profile.get_stream(rs.stream.depth))
         self.depth_intrinsics = self.depth_profile.get_intrinsics()
 
@@ -69,23 +70,25 @@ class DepthCamera:
 
 
     def get_frame(self):
+        try:
+            self.configure_frame()
 
-        self.configure_frame()
+            frames = self.pipeline.wait_for_frames()
+            aligned_frames = self.align.process(frames)
+            depth_frame = aligned_frames.get_depth_frame()
+            color_frame = aligned_frames.get_color_frame()
+            depth_frame = self.apply_Filters(depth_frame)
+            depth_image = np.asanyarray(depth_frame.get_data())
+            color_image = np.asanyarray(color_frame.get_data())
+            depth_colorframe = self.colorizer.colorize(depth_frame)
+            depth_colormap = np.asanyarray(depth_colorframe.get_data())
 
-        frames = self.pipeline.wait_for_frames()
-        aligned_frames = self.align.process(frames)
-        depth_frame = aligned_frames.get_depth_frame()
-        color_frame = aligned_frames.get_color_frame()
-        depth_frame = self.apply_Filters(depth_frame)
-        depth_image = np.asanyarray(depth_frame.get_data())
-        color_image = np.asanyarray(color_frame.get_data())
-        depth_colorframe = self.colorizer.colorize(depth_frame)
-        depth_colormap = np.asanyarray(depth_colorframe.get_data())
+            if not depth_frame or not color_frame:
+                return False, None, None
+            return True, depth_image, color_image, depth_colormap, depth_frame
 
-        if not depth_frame or not color_frame:
-            return False, None, None
-        return True, depth_image, color_image, depth_colormap, depth_frame
-
+        except Exception as e:
+            print(f"An error occurred in getVal: {e}")
 
     def deproject(self, pixel, depth):
 

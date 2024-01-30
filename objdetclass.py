@@ -10,9 +10,6 @@ from ultralytics import YOLO
 from NoMaskFoundException import NoMaskFound
 from detectionClass import Detection
 from pynput import keyboard
-# import spidev
-# import Jetson.GPIO as GPIO
-import time
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
 # CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'WhiteLine', 'YellowLine']
@@ -37,34 +34,13 @@ MM_TO_INCHES = 25.2
 class ObjectDetector:
 
     def __init__(self, model_path, camera_settings_path):
+        self.gyro_data = None
+        self.accel_data = None
         self.model = YOLO(model_path)
         self.dc = DepthCamera()
         self.dc.set_Settings_from_json(camera_settings_path)
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
-        # self.spi_setup()
-        # self.gpio_setup()
-
-    # def gpio_setup(self):
-    #     self.requestPin = 22  # Replace with your GPIO pin number
-    #     # or GPIO.BCM depending on your pin numbering system
-    #     GPIO.setmode(GPIO.BOARD)
-    #     GPIO.setup(self.requestPin, GPIO.IN)
-    #
-    # def listen_for_request(self):
-    #     while True:
-    #         if GPIO.input(self.requestPin):
-    #             print("GPIO Request Recieved")
-    #             # If the signal is detected, send SPI data
-    #             self.send_spi_data()
-    #             # Add a small delay to debounce
-    #             time.sleep(0.1)
-    #
-    # def spi_setup(self):
-    #     self.spi = spidev.SpiDev()
-    #     self.spi.open(0, 1)  # Open SPI port 0, device (CS) 0
-    #     self.spi.mode = 0b00  # SPI mode
-    #     self.spi.max_speed_hz = 1000000  # SPI speed (adjust as needed)
 
     def start_keyboard_listener(self):
         """
@@ -88,14 +64,18 @@ class ObjectDetector:
                         line = ser.readline().decode('utf-8').strip()
                         if line == "WRITE_CSV":
                             print("Arduino Command: Writing to CSV")
-                            self.write_detections_to_csv(
-                                self.detections, "output.csv")
+                            self.write_detections_to_csv(self.detections, "output.csv")
                         elif line == "QUIT":
                             print("Arduino Command: Quitting")
-                            self.write_detections_to_csv(
-                                self.detections, "output.csv")
+                            self.write_detections_to_csv(self.detections, "output.csv")
                             self.dc.release()
                             break
+                        elif line == "REQUEST":
+                            print("Arduino Command: Sending last detections")
+                            # Get the last 10 detections or however many are available
+                            serialized_data = self.serialize_detections(min(10, len(self.detections)))
+                            ser.write(serialized_data)
+                            print("Sent detections to Arduino")
 
         listener_thread = threading.Thread(target=serial_listener)
         listener_thread.start()
@@ -160,31 +140,7 @@ class ObjectDetector:
         # Convert the entire string to a byte array
         return serialized_data.encode('utf-8')
 
-    def send_spi_data(self):
-
-        dets_to_send = self.serialize_detections(5)
-        response = ""
-        try:
-            # Convert data to a byte array if it's not
-            dets_to_send = bytearray(dets_to_send)
-            # Send data to Arduino via SPI
-            print([0x01, 0x02, 0x03])
-            print("Sending Data")
-            response = self.spi.xfer([0x01, 0x02, 0x03])
-        except:
-            if not isinstance(dets_to_send, bytearray):
-                dets_to_send = bytearray("No Detections")
-            # Send data to Arduino via SPI
-            sendstr = "No Detections"
-            sendbyt = sendstr.encode('utf-8')
-            dets_to_send = sendbyt
-            print([0x01, 0x02, 0x03])
-            print("Sending Data")
-            response = self.spi.xfer([0x01, 0x02, 0x03])
-        print(response)
-        return response  # You can process the response if needed
-
-    def get_vals(self, depth_image, color_image, depth_frame):
+    def get_vals(self, depth_image, color_image):
         """
         Processes the depth and color images to detect objects and calculate their positions.
         """
@@ -211,7 +167,7 @@ class ObjectDetector:
                             self.process_detection(
                                 class_name, box.conf[0], robot_Vals)
                             self.draw_and_print_info(
-                            class_name, box.conf[0], robot_Vals, box, color_image)
+                                class_name, box.conf[0], robot_Vals, box, color_image)
             except Exception as e:
                 print("An error occurred:", e)
                 print("Traceback:", traceback.format_exc())
@@ -223,7 +179,7 @@ class ObjectDetector:
                         self.process_detection(
                             class_name, box.conf[0], robot_Vals)
                         self.draw_and_print_info(
-                        class_name, box.conf[0], robot_Vals, box, color_image)
+                            class_name, box.conf[0], robot_Vals, box, color_image)
 
     # Calculates average depth information within a bounding box in the depth image
     def calculate_depth_info_box(self, depth_image, bbox):
@@ -361,22 +317,19 @@ class ObjectDetector:
         print("[INFO] Starting video stream...")
         self.dc.start_Streaming()
 
-        # Start GPIO listening in a separate thread
-        # gpio_thread = threading.Thread(target=self.listen_for_request)
-        # gpio_thread.start()
-
         # Start the serial listener thread
-        # self.start_serial_listener('COM3', 9600)  # Adjust these parameters as needed
+        # self.start_serial_listener('\ttyUSB0', 9600)  # Adjust these parameters as needed
 
         # Start the keyboard listener thread
         self.start_keyboard_listener()
 
         while True:
-            ret, depth_frame, color_frame, depth_colormap, depth_image = self.dc.get_frame()
+            # ret, depth_image, color_frame, depth_colormap, depth_frame = self.dc.get_latest_data()
+            ret, depth_image, color_frame, depth_colormap, depth_frame = self.dc.get_frame()
             if not ret:
                 continue
 
-            self.get_vals(depth_frame, color_frame, depth_image)
+            self.get_vals(depth_image, color_frame)
 
             # Display the frames
             cv2.namedWindow('Color Frame', cv2.WINDOW_NORMAL)
@@ -388,18 +341,26 @@ class ObjectDetector:
                 self.write_detections_to_csv(self.detections, "output.csv")
             if key == 27:
                 self.write_detections_to_csv(self.detections, "output.csv")
-                self.dc.release()
+                self.dc.release() # Stop Camera
+                # self.dc.stop_streaming() # Stop Camera
                 break
+
+    def get_imu(self):
+        self.accel_data, self.gyro_data = self.dc.get_imu_data()
+        print(f"Intel Realsense Accelerometer Data: {self.accel_data}")
+        print(f"Intel Realsense Gyroscope Data: {self.gyro_data}")
 
     def on_press(self, key):
         try:
             if key == keyboard.Key.enter or key.char in ['w', 'W']:
                 print("Writing to CSV")
                 self.write_detections_to_csv(self.detections, "output.csv")
+            if key == keyboard.Key.enter or key.char in ['d', 'D']:
+                self.get_imu()
             if key == keyboard.Key.esc or key.char in ['q', 'Q']:
                 self.write_detections_to_csv(self.detections, "output.csv")
-                self.dc.release()  # Stop listener
-                self.spi.close()
+                # self.dc.stop_streaming() # Stop Camera
+                self.dc.release() # Stop Camera
 
         except AttributeError:
             pass

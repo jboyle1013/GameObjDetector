@@ -21,9 +21,7 @@ void loop() {
     String response = Serial.readStringUntil('\n');
     Serial.print("Received from Jetson: ");
     Serial.println(response);
-  } else {
-    Serial.println("No response received, sending another request.");
   }
-
+  
   delay(3000); // Delay between requests
 }
