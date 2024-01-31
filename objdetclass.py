@@ -1,7 +1,7 @@
 """
 This is the File Being Used for the Detections
 """
-
+import time
 
 import cv2
 import math
@@ -64,6 +64,7 @@ class ObjectDetector:
         """
 
         def serial_listener():
+            time.sleep(5)
             with serial.Serial(port, baud_rate) as ser:
                 while self.running:
                     if ser.in_waiting:

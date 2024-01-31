@@ -47,7 +47,7 @@ void parseDetectionData(String data) {
 
 void processDataItem(int detectionNumber, int itemNumber, String item) {
   switch (itemNumber) {
-    case 0: Serial.print("Detection "); Serial.print(detectionNumber); Serial.print(" - Class Name: "); break;
+    case 0: Serial.print("Class Name: "); break;
     case 1: Serial.print("Confidence: "); break;
     case 2: Serial.print("Depth (mm): "); break;
     case 3: Serial.print("Depth (in): "); break;
