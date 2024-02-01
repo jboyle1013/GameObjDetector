@@ -11,7 +11,7 @@ void setup() {
 
 void loop() {
   // Send a request every 10 seconds
-  delay(10000);
+  delay(5000);
   mySerial.println("REQUEST");
 
   // Wait for a response with a timeout
@@ -44,6 +44,22 @@ void parseDetectionData(String data) {
     index = nextIndex + 1;
   }
 }
+
+void processDetections(String data) {
+  // Split the data string into individual detections
+  int startIdx = 0;
+  int endIdx = data.indexOf(';');
+
+  while (endIdx != -1) {
+    String detection = data.substring(startIdx, endIdx);
+    parseDetection(detection);
+    startIdx = endIdx + 1;
+    endIdx = data.indexOf(';', startIdx);
+  }
+  // Process the last detection (after the last semicolon)
+  parseDetection(data.substring(startIdx));
+}
+
 
 void processDataItem(int detectionNumber, int itemNumber, String item) {
   switch (itemNumber) {

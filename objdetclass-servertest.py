@@ -1,5 +1,5 @@
 """
-This is the File Being Used for the Detections
+This is the File Being Used for the Detections - Testing off Site Server
 """
 import time
 
