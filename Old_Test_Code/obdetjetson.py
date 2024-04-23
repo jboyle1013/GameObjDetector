@@ -1,9 +1,8 @@
 """
 This is the File Being Used for the Detections
 """
-import json
 import time
-
+from time import process_time
 import cv2
 import math
 import numpy as np
@@ -34,13 +33,15 @@ CLASS_COLORS = {
     'WhiteLine': (255, 255, 255),
     'Button': (25, 123, 47)
 }
+
+
 CONFIDENCE_THRESHOLD = 0.6
 MM_TO_INCHES = 25.2
 
 
 class ObjectDetector:
 
-    def __init__(self, model_path, camera_settings_path, ignore_json_path):
+    def __init__(self, model_path, camera_settings_path):
         self.gyro_data = None
         self.accel_data = None
         self.model = YOLO(model_path)
@@ -49,13 +50,8 @@ class ObjectDetector:
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
         self.running = True
-        self.ignore_lists_dict = self.get_ignore_lists(ignore_json_path)
+        self.time_start = None
         self.ignore_list = []
-
-
-    def get_ignore_lists(self, ignore_json_path):
-        with open(ignore_json_path) as ignore_lists:
-            return json.load(ignore_lists)
 
     def start_keyboard_listener(self):
         """
@@ -73,28 +69,33 @@ class ObjectDetector:
         """
 
         def serial_listener():
-            time.sleep(5)
             with serial.Serial(port, baud_rate) as ser:
                 while self.running:
                     if ser.in_waiting:
                         line = ser.readline().decode('utf-8').strip()
                         if line == "WRITE_CSV":
                             print("Arduino Command: Writing to CSV")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(
+                                self.detections, "../output.csv")
                         elif line == "QUIT":
                             print("Arduino Command: Quitting")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(
+                                self.detections, "../output.csv")
                             self.dc.release()
                             break
                         elif line == "REQUEST":
                             print("Arduino Command: Sending last detections")
                             # Get the last 10 detections or however many are available
-                            serialized_data = self.serialize_detections(min(10, len(self.detections)))
+                            serialized_data = self.serialize_detections(
+                                min(4, len(self.detections)))  # Mega Version
+                            # serialized_data = self.serialize_detections(
+                            #    min(3, len(self.detections))) # Uno Version
                             ser.write(serialized_data)
                             print("Sent detections to Arduino")
-                        else:
-                            if line in self.ignore_lists_dict.keys():
-                                self.ignore_list = self.ignore_lists_dict[line]
+
+                    #elif "IGNORE" in line:
+                    #    pass
+                    # nline = line.split(",")
 
 
         listener_thread = threading.Thread(target=serial_listener)
@@ -105,10 +106,16 @@ class ObjectDetector:
         depth_in, depth, deproj, height, horizontal_angle, direction = [
             val for val in robot_Vals]
         x, y, z = [val for val in deproj]
+        checkvals = [confidence, depth, depth_in, x, y, z, horizontal_angle]
+
+        if any(math.isnan(val) for val in checkvals):
+            return
+
+        time_now = time.process_time()
+        timestamp = time_now-self.time_start
         # Create a Detection instance
-        timestamp = time.time()
         detection = Detection(class_name, confidence, depth,
-                              depth_in, x, y, z, horizontal_angle, direction, timestamp)
+                              x, y, z, horizontal_angle, direction, timestamp)
 
         # Add the detection to the thread-safe list
         self.add_detection(detection)
@@ -120,9 +127,9 @@ class ObjectDetector:
     def get_detections(self):
         with self.lock:  # Acquire lock before accessing shared resource
             detections_copy = self.detections.copy()
-            sorted_detections = sorted(detections_copy, key=lambda d: (d.depth_mm, -d.timestamp,))
-            self.detections.clear()
-        return sorted_detections
+            # sorted_detections = sorted(detections_copy, key=lambda d: (d.depth_mm))
+
+        return detections_copy
 
     def write_detections_to_csv(self, detections, filename):
         """
@@ -176,21 +183,20 @@ class ObjectDetector:
             try:
                 for mask, box in zip(masks, boxes):
                     class_name = CLASS_NAMES[int(box.cls[0])]
-                    if class_name not in self.ignore_list:
-                        if box.conf[0] > CONFIDENCE_THRESHOLD:
-                            try:
-                                robot_Vals = self.process_mask(
-                                    mask, class_name, color_image, depth_image)
-                            except Exception as e:
-                                print("An error occurred:", e)
-                                print("Traceback:", traceback.format_exc())
-                                robot_Vals = self.process_box(
-                                    box, class_name, color_image, depth_image)
-                            finally:
-                                self.process_detection(
-                                    class_name, box.conf[0], robot_Vals)
-                                self.draw_and_print_info(
-                                    class_name, box.conf[0], robot_Vals, box, color_image)
+                    if box.conf[0] > CONFIDENCE_THRESHOLD:
+                        try:
+                            robot_Vals = self.process_mask(
+                                mask, class_name, color_image, depth_image)
+                        except Exception as e:
+                            print("An error occurred:", e)
+                            print("Traceback:", traceback.format_exc())
+                            robot_Vals = self.process_box(
+                                box, class_name, color_image, depth_image)
+                        finally:
+                            self.process_detection(
+                                class_name, box.conf[0], robot_Vals)
+                            self.draw_and_print_info(
+                                class_name, box.conf[0], robot_Vals, box, color_image)
             except Exception as e:
                 print("An error occurred:", e)
                 print("Traceback:", traceback.format_exc())
@@ -255,24 +261,24 @@ class ObjectDetector:
         # Coordinates for the bounding box
         x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-        print(f"<----------------------------------------------------->")
+        # print(f"<----------------------------------------------------->")
         # Print class name and confidence
-        print("Class name -->", className)
-        print(f"Confidence ---> {confidence * 100:.1f}%")
+        # print("Class name -->", className)
+        # print(f"Confidence ---> {confidence * 100:.1f}%")
 
         # Print depth information
-        print(f"Distance in ---> {depth_in:.3f} in", )
-        print(f"Distance ---> {depth:.3f} mm", )
+        # print(f"Distance in ---> {depth_in:.3f} in", )
+        # print(f"Distance ---> {depth:.3f} mm", )
 
         # Print deprojected coordinates and additional calculated details
-        print(
-            f"RS Deproj  3D Coordinates: (X, Y, Z) = ({deproj[0]}, {deproj[1]}, {deproj[2]})")
-        print(f"Actual Height? Calculated from Deproj = {height}")
+        # print(
+        #    f"RS Deproj  3D Coordinates: (X, Y, Z) = ({deproj[0]}, {deproj[1]}, {deproj[2]})")
+        # print(f"Actual Height? Calculated from Deproj = {height}")
 
-        print(f"Direction from Deproj = {direction}")
-        print(
-            f"Calculated Angle from Deproj = {horizontal_angle} Degrees to the {direction}")
-        print(f"<----------------------------------------------------->\n\n")
+        # print(f"Direction from Deproj = {direction}")
+        # print(
+        #    f"Calculated Angle from Deproj = {horizontal_angle} Degrees to the {direction}")
+        # print(f"<----------------------------------------------------->\n\n")
 
         # Draw text on the color image for visual display
         org = [x1, y1]
@@ -337,14 +343,16 @@ class ObjectDetector:
         return [depth_in, depth, deproj, height, horizontal_angle, direction]
 
     def start_detection(self):
+
+        # Start the keyboard listener thread
+        self.start_keyboard_listener()
+
         print("[INFO] Starting video stream...")
         self.dc.start_Streaming()
 
         # Start the serial listener thread
-        # self.start_serial_listener('/dev/ttyUSB0', 9600)  # Adjust these parameters as needed
-
-        # Start the keyboard listener thread
-        self.start_keyboard_listener()
+        # self.start_serial_listener('/dev/ttyUSB0', 9600)
+        self.time_start = time.process_time()
 
         while True:
             # ret, depth_image, color_frame, depth_colormap, depth_frame = self.dc.get_latest_data()
@@ -358,20 +366,22 @@ class ObjectDetector:
             cv2.namedWindow('Color Frame', cv2.WINDOW_NORMAL)
             cv2.imshow("Color Frame", color_frame)
 
+
             key = cv2.waitKey(1)
             if key == 13 or (key == 119 or key == 87):
                 print("Writing to CSV")
-                self.write_detections_to_csv(self.detections, "output.csv")
+                self.write_detections_to_csv(self.detections, "../output.csv")
             if key == 27:
-                self.write_detections_to_csv(self.detections, "output.csv")
+                self.write_detections_to_csv(self.detections, "../output.csv")
                 self.dc.release()  # Stop Camera
+                self.stop_all_listeners()
                 # self.dc.stop_streaming() # Stop Camera
                 break
 
     def get_imu(self):
         self.accel_data, self.gyro_data = self.dc.get_imu_data()
-        print(f"Intel Realsense Accelerometer Data: {self.accel_data}")
-        print(f"Intel Realsense Gyroscope Data: {self.gyro_data}")
+        # print(f"Intel Realsense Accelerometer Data: {self.accel_data}")
+        # print(f"Intel Realsense Gyroscope Data: {self.gyro_data}")
 
     def stop_all_listeners(self):
         self.running = False  # This will stop the serial listener loop
@@ -382,11 +392,11 @@ class ObjectDetector:
         try:
             if key == keyboard.Key.enter or key.char in ['w', 'W']:
                 print("Writing to CSV")
-                self.write_detections_to_csv(self.detections, "output.csv")
-            if key == keyboard.Key.enter or key.char in ['d', 'D']:
-                self.get_imu()
+                self.write_detections_to_csv(self.detections, "../output.csv")
+            # if key == keyboard.Key.enter or key.char in ['d', 'D']:
+            #     self.get_imu()
             if key == keyboard.Key.esc or key.char in ['q', 'Q']:
-                self.write_detections_to_csv(self.detections, "output.csv")
+                self.write_detections_to_csv(self.detections, "../output.csv")
                 # self.dc.stop_streaming() # Stop Camera
                 self.dc.release()  # Stop Camera
                 self.stop_all_listeners()
@@ -399,5 +409,5 @@ class ObjectDetector:
 # Usage of the class in the main program
 if __name__ == "__main__":
     detector = ObjectDetector(
-        "train11p2/weights/best.pt", 'camerasettings/settings1.json', 'ignores.json')
+        "../train13/weights/best.pt", 'camerasettings/settings1.json')
     detector.start_detection()

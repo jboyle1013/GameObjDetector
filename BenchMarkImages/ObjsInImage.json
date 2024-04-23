@@ -1,0 +1,21 @@
+{
+  "Image0": ["SmallBox", "SmallBox", "WhiteLine"],
+  "Image1": ["SmallBox", "BigBox", "SmallBox", "Nozzle", "Nozzle", "Nozzle", "Rocket", "Rocket", "StartZone", "YellowLine", "BlueZone", "RedZone", "GreenZone", "WhiteLine"],
+  "Image2": ["Button"],
+  "Image3": ["Button", "YellowLine"],
+  "Image4": ["Nozzle", "Rocket", "Nozzle", "Rocket"],
+  "Image5": ["BigBox", "BigBox", "Nozzle", "Rocket", "SmallBox"],
+  "Image6": ["Nozzle", "Rocket", "Button"],
+  "Image7": ["StartZone", "YellowLine"],
+  "Image8": ["Nozzle", "Rocket", "Nozzle", "Rocket", "StartZone"],
+  "Image9": ["BigBox", "BigBox", "Nozzle", "Rocket", "SmallBox", "BlueZone", "RedZone"],
+  "Image10": ["YellowLine", "BlueZone", "RedZone"],
+  "Image11": ["Button", "YellowLine", "SmallBox", "StartZone", "YellowLine"],
+  "Image12": ["BigBox", "BigBox", "Nozzle", "Rocket", "SmallBox", "BlueZone", "RedZone"],
+  "Image13": ["WhiteLine", "WhiteLine", "YellowLine", "YellowLine"],
+  "Image14": ["BigBox", "BigBox", "BigBox", "Nozzle", "Rocket", "SmallBox", "BlueZone", "RedZone"],
+  "Image15": ["GreenZone", "YellowLine"],
+  "Image16": ["SmallBox", "BigBox", "SmallBox", "Nozzle", "Nozzle", "Nozzle", "Rocket", "Rocket", "StartZone", "YellowLine", "BlueZone", "RedZone", "GreenZone", "WhiteLine"],
+  "Image17": ["Nozzle", "Rocket"],
+  "Image18": ["SmallBox", "BigBox", "SmallBox", "Nozzle", "Nozzle", "Nozzle", "Rocket", "Rocket", "StartZone", "YellowLine", "BlueZone", "RedZone", "GreenZone", "WhiteLine"]
+}

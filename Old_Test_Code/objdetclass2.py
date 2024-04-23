@@ -1,7 +1,6 @@
 """
 This is the File Being Used for the Detections
 """
-import json
 import time
 
 import cv2
@@ -19,7 +18,7 @@ from pynput import keyboard
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
 # CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'WhiteLine', 'YellowLine']
-CLASS_NAMES = ['BigBox', 'BlueZone', 'Button', 'GreenZone', 'Nozzle', 'RedZone',
+CLASS_NAMES = ['BigBox', 'BlueZone', 'GreenZone', 'Nozzle', 'RedZone',
                'Rocket', 'SmallBox', 'StartZone', 'WhiteLine', 'YellowLine']
 CLASS_COLORS = {
     'BigBox': (235, 82, 52),
@@ -31,8 +30,7 @@ CLASS_COLORS = {
     'GreenZone': (0, 255, 0),
     'BlueZone': (0, 60, 200),
     'YellowLine': (100, 150, 20),
-    'WhiteLine': (255, 255, 255),
-    'Button': (25, 123, 47)
+    'WhiteLine': (255, 255, 255)
 }
 CONFIDENCE_THRESHOLD = 0.6
 MM_TO_INCHES = 25.2
@@ -40,7 +38,7 @@ MM_TO_INCHES = 25.2
 
 class ObjectDetector:
 
-    def __init__(self, model_path, camera_settings_path, ignore_json_path):
+    def __init__(self, model_path, camera_settings_path):
         self.gyro_data = None
         self.accel_data = None
         self.model = YOLO(model_path)
@@ -49,13 +47,6 @@ class ObjectDetector:
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
         self.running = True
-        self.ignore_lists_dict = self.get_ignore_lists(ignore_json_path)
-        self.ignore_list = []
-
-
-    def get_ignore_lists(self, ignore_json_path):
-        with open(ignore_json_path) as ignore_lists:
-            return json.load(ignore_lists)
 
     def start_keyboard_listener(self):
         """
@@ -80,10 +71,10 @@ class ObjectDetector:
                         line = ser.readline().decode('utf-8').strip()
                         if line == "WRITE_CSV":
                             print("Arduino Command: Writing to CSV")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(self.detections, "../output.csv")
                         elif line == "QUIT":
                             print("Arduino Command: Quitting")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(self.detections, "../output.csv")
                             self.dc.release()
                             break
                         elif line == "REQUEST":
@@ -92,10 +83,6 @@ class ObjectDetector:
                             serialized_data = self.serialize_detections(min(10, len(self.detections)))
                             ser.write(serialized_data)
                             print("Sent detections to Arduino")
-                        else:
-                            if line in self.ignore_lists_dict.keys():
-                                self.ignore_list = self.ignore_lists_dict[line]
-
 
         listener_thread = threading.Thread(target=serial_listener)
         listener_thread.start()
@@ -176,21 +163,20 @@ class ObjectDetector:
             try:
                 for mask, box in zip(masks, boxes):
                     class_name = CLASS_NAMES[int(box.cls[0])]
-                    if class_name not in self.ignore_list:
-                        if box.conf[0] > CONFIDENCE_THRESHOLD:
-                            try:
-                                robot_Vals = self.process_mask(
-                                    mask, class_name, color_image, depth_image)
-                            except Exception as e:
-                                print("An error occurred:", e)
-                                print("Traceback:", traceback.format_exc())
-                                robot_Vals = self.process_box(
-                                    box, class_name, color_image, depth_image)
-                            finally:
-                                self.process_detection(
-                                    class_name, box.conf[0], robot_Vals)
-                                self.draw_and_print_info(
-                                    class_name, box.conf[0], robot_Vals, box, color_image)
+                    if box.conf[0] > CONFIDENCE_THRESHOLD:
+                        try:
+                            robot_Vals = self.process_mask(
+                                mask, class_name, color_image, depth_image)
+                        except Exception as e:
+                            print("An error occurred:", e)
+                            print("Traceback:", traceback.format_exc())
+                            robot_Vals = self.process_box(
+                                box, class_name, color_image, depth_image)
+                        finally:
+                            self.process_detection(
+                                class_name, box.conf[0], robot_Vals)
+                            self.draw_and_print_info(
+                                class_name, box.conf[0], robot_Vals, box, color_image)
             except Exception as e:
                 print("An error occurred:", e)
                 print("Traceback:", traceback.format_exc())
@@ -234,17 +220,7 @@ class ObjectDetector:
         return depth, depth / MM_TO_INCHES
 
     # Deprojects pixel coordinates to 3D space and calculates additional info
-    def deproject_and_calculate(self, centerx, centery, depth):
-        # Deprojects pixel to point in 3D space
-        deproj = self.dc.deproject([centery, centerx], depth)
-        # Calculate height with respect to camera height
-        height = abs(CAMERA_HEIGHT - deproj[1])
-        # Calculate the direct distance from the camera to the point
-        # Determine the horizontal angle to the point
-        horizontal_angle = math.degrees(math.atan2(deproj[0], deproj[2]))
-        # Determine the direction (left or right) based on the deprojected X coordinate
-        direction = "left" if deproj[0] < 0 else "right"
-        return deproj, height, horizontal_angle, direction
+
 
     # Draws information on the color image and prints details to the console
     def draw_and_print_info(self, className, confidence, robot_Vals, box, color_image):
@@ -358,46 +334,10 @@ class ObjectDetector:
             cv2.namedWindow('Color Frame', cv2.WINDOW_NORMAL)
             cv2.imshow("Color Frame", color_frame)
 
-            key = cv2.waitKey(1)
-            if key == 13 or (key == 119 or key == 87):
-                print("Writing to CSV")
-                self.write_detections_to_csv(self.detections, "output.csv")
-            if key == 27:
-                self.write_detections_to_csv(self.detections, "output.csv")
-                self.dc.release()  # Stop Camera
-                # self.dc.stop_streaming() # Stop Camera
-                break
-
-    def get_imu(self):
-        self.accel_data, self.gyro_data = self.dc.get_imu_data()
-        print(f"Intel Realsense Accelerometer Data: {self.accel_data}")
-        print(f"Intel Realsense Gyroscope Data: {self.gyro_data}")
-
-    def stop_all_listeners(self):
-        self.running = False  # This will stop the serial listener loop
-        if hasattr(self, 'listener'):
-            self.listener.stop()  # Stop the keyboard listener
-
-    def on_press(self, key):
-        try:
-            if key == keyboard.Key.enter or key.char in ['w', 'W']:
-                print("Writing to CSV")
-                self.write_detections_to_csv(self.detections, "output.csv")
-            if key == keyboard.Key.enter or key.char in ['d', 'D']:
-                self.get_imu()
-            if key == keyboard.Key.esc or key.char in ['q', 'Q']:
-                self.write_detections_to_csv(self.detections, "output.csv")
-                # self.dc.stop_streaming() # Stop Camera
-                self.dc.release()  # Stop Camera
-                self.stop_all_listeners()
-                print("Listeners stopped.")
-
-        except AttributeError:
-            pass
 
 
 # Usage of the class in the main program
 if __name__ == "__main__":
     detector = ObjectDetector(
-        "train11p2/weights/best.pt", 'camerasettings/settings1.json', 'ignores.json')
+        "../train27/weights/best.pt", 'camerasettings/settings1.json')
     detector.start_detection()

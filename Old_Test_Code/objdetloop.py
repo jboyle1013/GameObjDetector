@@ -1,5 +1,5 @@
 """
-Old Test Loop Version of objdetclass.py
+Old Test Loop Version of objdetclass_async.py
 """
 
 
@@ -26,7 +26,7 @@ CLASS_COLORS = {
 }
 CONFIDENCE_THRESHOLD = 0.6  # Minimum confidence threshold for detection
 MM_TO_INCHES = 25.4  # Conversion factor from millimeters to inches
-model = YOLO("train6/weights/best.pt")  # Load trained YOLO model
+model = YOLO("../train6/weights/best.pt")  # Load trained YOLO model
 
 dc = DepthCamera()  # Initialize the depth camera
 

@@ -1,0 +1,26 @@
+{
+  "confidence_threshold": 0.6,
+  "serial_port": "/dev/ttyUSB0",
+  "baud_rate": 9600,
+  "camera_height": 63.5,
+  "mm_to_inches": 25.2,
+  "model_path": "train13/weights/best.pt",
+  "camera_settings_path": "camerasettings/settings1.json",
+  "ignore_json_path": "ignores.json",
+  "font_size": 0.65,
+  "class_names": ["BigBox", "BlueZone", "Button", "GreenZone", "Nozzle", "RedZone",
+    "Rocket", "SmallBox", "StartZone", "WhiteLine", "YellowLine"],
+  "class_colors": {
+    "BigBox": [235, 82, 52],
+    "Nozzle": [235, 217, 52],
+    "Rocket": [52, 235, 73],
+    "SmallBox": [230, 46, 208],
+    "StartZone": [100, 110, 5],
+    "RedZone": [0, 60, 200],
+    "GreenZone": [0, 255, 0],
+    "BlueZone": [255, 0, 0],
+    "YellowLine": [50, 220, 220],
+    "WhiteLine": [255, 255, 255],
+    "Button": [25, 123, 47]
+  }
+}

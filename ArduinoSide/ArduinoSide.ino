@@ -23,7 +23,7 @@ void loop() {
   // Read and parse the response
   if (mySerial.available()) {
     String data = mySerial.readStringUntil('\n');
-    parseDetectionData(data);
+    processDetections(data);
   }
 }
 
@@ -52,12 +52,12 @@ void processDetections(String data) {
 
   while (endIdx != -1) {
     String detection = data.substring(startIdx, endIdx);
-    parseDetection(detection);
+    parseDetectionData(detection);
     startIdx = endIdx + 1;
     endIdx = data.indexOf(';', startIdx);
   }
   // Process the last detection (after the last semicolon)
-  parseDetection(data.substring(startIdx));
+  parseDetectionData(data.substring(startIdx));
 }
 
 

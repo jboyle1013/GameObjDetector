@@ -8,6 +8,7 @@ streaming, frame processing, and advanced configuration.
 import json
 import numpy as np
 import pyrealsense2 as rs
+from threading import Thread
 
 DS5_product_ids = ["0AD1", "0AD2", "0AD3", "0AD4", "0AD5", "0AF6", "0AFE", "0AFF", "0B00", "0B01", "0B03", "0B07", "0B3A", "0B5C"]
 
@@ -45,6 +46,13 @@ class DepthCamera:
         # Enable histogram equalization
         self.colorizer.set_option(rs.option.histogram_equalization_enabled, 1)
 
+        self.imu_pipe = rs.pipeline()
+        self.imu_config = rs.config()
+        self.imu_config.enable_stream(rs.stream.gyro)
+        self.imu_config.enable_stream(rs.stream.accel)
+        self.acc = []
+        self.gyro = []
+
 
     def start_Streaming(self):
         # Start streaming
@@ -63,6 +71,8 @@ class DepthCamera:
         self.colorizer.set_option(rs.option.min_distance, min_distance)
         self.colorizer.set_option(rs.option.max_distance, max_distance)
 
+    def start_IMU(self):
+        self.imu_pipe.start(self.imu_config)
 
     def configure_frame(self):
         # Get stream profile and camera intrinsics
@@ -102,17 +112,27 @@ class DepthCamera:
 
     def release(self):
         self.pipeline.stop()
+        self.imu_pipe.stop()
 
 
     def get_imu_data(self):
-        frames = self.pipeline.wait_for_frames()
+        frames = self.imu_pipe.wait_for_frames()
         accel_frame = frames.first_or_default(rs.stream.accel)
         gyro_frame = frames.first_or_default(rs.stream.gyro)
         if accel_frame and gyro_frame:
-            accel_data = accel_frame.as_motion_frame().get_motion_data()
-            gyro_data = gyro_frame.as_motion_frame().get_motion_data()
-            return accel_data, gyro_data
-        return None, None
+            gyro_datarad = gyro_frame.as_motion_frame().get_motion_data()
+            gyro_datadeg = self.convert_to_degrees(gyro_datarad)
+            return  gyro_datadeg
+        return None
+
+    def convert_to_degrees(self, gyro_data):
+        rad_to_deg = 57.2958  # Conversion factor from radians to degrees
+        gyro_degrees = {
+            'x': gyro_data.x * rad_to_deg,
+            'y': gyro_data.y * rad_to_deg,
+            'z': gyro_data.z * rad_to_deg
+        }
+        return gyro_degrees
 
 
     def apply_Filters(self, depth_frame):

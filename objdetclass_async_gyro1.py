@@ -1,45 +1,45 @@
 """
-This is the File Being Used for the Detections - Testing off Site Server
+This is the File Being Used for the Detections
 """
+import asyncio
+import csv
+import json
+import math
+import queue
+import threading
 import time
+import traceback
 
 import cv2
-import math
 import numpy as np
-import traceback
-import threading
-import csv
 import serial
-from realsense_obj import DepthCamera
+from pynput import keyboard
 from ultralytics import YOLO
+
 from NoMaskFoundException import NoMaskFound
 from detectionClass import Detection
-from pynput import keyboard
+from realsense_obj_gyro import DepthCamera
 
-CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
-# CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'WhiteLine', 'YellowLine']
-CLASS_NAMES = ['BigBox', 'BlueZone', 'GreenZone', 'Nozzle', 'RedZone',
-               'Rocket', 'SmallBox', 'StartZone', 'WhiteLine', 'YellowLine']
-CLASS_COLORS = {
-    'BigBox': (235, 82, 52),
-    'Nozzle': (235, 217, 52),
-    'Rocket': (52, 235, 73),
-    'SmallBox': (230, 46, 208),
-    'StartZone': (100, 110, 5),
-    'RedZone': (255, 0, 0),
-    'GreenZone': (0, 255, 0),
-    'BlueZone': (0, 60, 200),
-    'YellowLine': (100, 150, 20),
-    'WhiteLine': (255, 255, 255)
-}
-CONFIDENCE_THRESHOLD = 0.6
-MM_TO_INCHES = 25.2
+with open('config.json', 'r') as config_file:
+    config = json.load(config_file)
+
+CONFIDENCE_THRESHOLD = config["confidence_threshold"]
+SERIAL_PORT = config["serial_port"]
+BAUD_RATE = config["baud_rate"]
+CAMERA_HEIGHT = config["camera_height"]
+MM_TO_INCHES = config["mm_to_inches"]
+MODEL_PATH = config["model_path"]
+CAMERA_SETTINGS_PATH = config["camera_settings_path"]
+IGNORE_JSON_PATH = config["ignore_json_path"]
+CLASS_NAMES = config["class_names"]
+CLASS_COLORS = {k: tuple(v) for k, v in config["class_colors"].items()}
 
 
 class ObjectDetector:
 
-    def __init__(self, model_path, camera_settings_path):
-        self.gyro_data = None
+    def __init__(self, model_path, camera_settings_path, ignore_json_path):
+        self.gyro_datarad = None
+        self.gyro_datadeg = None
         self.accel_data = None
         self.model = YOLO(model_path)
         self.dc = DepthCamera()
@@ -47,6 +47,15 @@ class ObjectDetector:
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
         self.running = True
+        self.time_start = None
+        self.ignore_lists_dict = self.get_ignore_lists(ignore_json_path)
+        self.ignore_list = []
+        self.frame_queue = queue.Queue(maxsize=10)
+        self.send_gyro_data = True
+
+    def get_ignore_lists(self, ignore_json_path):
+        with open(ignore_json_path, 'r') as ignore_lists:
+            return json.load(ignore_lists)
 
     def start_keyboard_listener(self):
         """
@@ -64,25 +73,41 @@ class ObjectDetector:
         """
 
         def serial_listener():
-            time.sleep(5)
             with serial.Serial(port, baud_rate) as ser:
                 while self.running:
                     if ser.in_waiting:
                         line = ser.readline().decode('utf-8').strip()
                         if line == "WRITE_CSV":
                             print("Arduino Command: Writing to CSV")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(
+                                self.detections, "output.csv")
                         elif line == "QUIT":
                             print("Arduino Command: Quitting")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(
+                                self.detections, "output.csv")
                             self.dc.release()
                             break
                         elif line == "REQUEST":
                             print("Arduino Command: Sending last detections")
                             # Get the last 10 detections or however many are available
-                            serialized_data = self.serialize_detections(min(10, len(self.detections)))
+                            serialized_data = self.serialize_detections(
+                                min(4, len(self.detections)))  # Mega Version
+                            # serialized_data = self.serialize_detections(
+                            #    min(3, len(self.detections))) # Uno Version
                             ser.write(serialized_data)
                             print("Sent detections to Arduino")
+                        elif line == "GYRO":
+                            if self.send_gyro_data:
+                                # Fetch gyro data
+                                if self.gyro_datadeg:
+                                    # Format and send gyro data
+                                    gyro_data_str = f"{self.gyro_datadeg['x']:.2f},{self.gyro_datadeg['y']:.2f},{self.gyro_datadeg['x']:.2f}\n"
+                            ser.write(gyro_data_str.encode('utf-8'))
+                        else:
+                            print(line)
+                            if line in self.ignore_lists_dict.keys():
+                                with self.lock:
+                                    self.ignore_list = self.ignore_lists_dict[line]
 
         listener_thread = threading.Thread(target=serial_listener)
         listener_thread.start()
@@ -92,10 +117,16 @@ class ObjectDetector:
         depth_in, depth, deproj, height, horizontal_angle, direction = [
             val for val in robot_Vals]
         x, y, z = [val for val in deproj]
+        checkvals = [confidence, depth, depth_in, x, y, z, horizontal_angle]
+
+        if any(math.isnan(val) for val in checkvals):
+            return
+
+        time_now = time.process_time()
+        timestamp = time_now - self.time_start
         # Create a Detection instance
-        timestamp = time.time()
         detection = Detection(class_name, confidence, depth,
-                              depth_in, x, y, z, horizontal_angle, direction, timestamp)
+                              x, y, z, horizontal_angle, direction, timestamp)
 
         # Add the detection to the thread-safe list
         self.add_detection(detection)
@@ -107,9 +138,9 @@ class ObjectDetector:
     def get_detections(self):
         with self.lock:  # Acquire lock before accessing shared resource
             detections_copy = self.detections.copy()
-            sorted_detections = sorted(detections_copy, key=lambda d: (d.depth_mm, -d.timestamp,))
-            self.detections.clear()
-        return sorted_detections
+            # sorted_detections = sorted(detections_copy, key=lambda d: (d.depth_mm))
+
+        return detections_copy
 
     def write_detections_to_csv(self, detections, filename):
         """
@@ -124,13 +155,13 @@ class ObjectDetector:
 
                 # Write the header
                 writer.writerow(
-                    ['Class Name', 'Confidence', 'Depth (mm)', 'Depth (in)', 'X', 'Y', 'Z', 'Horizontal Angle',
-                     'Direction'])
+                    ['Class Name', 'Confidence', 'Depth (mm)', 'X', 'Y', 'Z',
+                     'Horizontal Angle', 'Direction'])
 
                 # Write the detection data
                 for detection in detections:
                     writer.writerow([detection.class_name, f"{detection.confidence:.2f}", f"{detection.depth_mm:.2f}",
-                                     f"{detection.depth_in:.2f}", f"{detection.x:.2f}", f"{detection.y:.2f}",
+                                     f"{detection.x:.2f}", f"{detection.y:.2f}",
                                      f"{detection.z:.2f}", f"{detection.horizontal_angle:.2f}", detection.direction])
 
     def serialize_detections(self, n):
@@ -139,11 +170,14 @@ class ObjectDetector:
 
         # Get the last n detection objects
         last_n_detections = detections[-n:]
+        gyro_data_str = f",{self.gyro_datadeg['x']:.2f},{self.gyro_datadeg['y']:.2f},{self.gyro_datadeg['x']:.2f}"
 
+        combined_data = gyro_data_str.join(
+            [detection.serialize() for detection in last_n_detections])
         # Serialize each detection object and join with a delimiter
         delimiter = ';'  # Ensure this delimiter does not appear in the data
         serialized_data = delimiter.join(
-            [detection.serialize() for detection in last_n_detections])
+            [detection for detection in combined_data])
 
         serialized_data = serialized_data + '\n'
         # Convert the entire string to a byte array
@@ -163,20 +197,21 @@ class ObjectDetector:
             try:
                 for mask, box in zip(masks, boxes):
                     class_name = CLASS_NAMES[int(box.cls[0])]
-                    if box.conf[0] > CONFIDENCE_THRESHOLD:
-                        try:
-                            robot_Vals = self.process_mask(
-                                mask, class_name, color_image, depth_image)
-                        except Exception as e:
-                            print("An error occurred:", e)
-                            print("Traceback:", traceback.format_exc())
-                            robot_Vals = self.process_box(
-                                box, class_name, color_image, depth_image)
-                        finally:
-                            self.process_detection(
-                                class_name, box.conf[0], robot_Vals)
-                            self.draw_and_print_info(
-                                class_name, box.conf[0], robot_Vals, box, color_image)
+                    if class_name not in self.ignore_list:
+                        if box.conf[0] > CONFIDENCE_THRESHOLD:
+                            try:
+                                robot_Vals = self.process_mask(
+                                    mask, class_name, color_image, depth_image)
+                            except Exception as e:
+                                print("An error occurred:", e)
+                                print("Traceback:", traceback.format_exc())
+                                robot_Vals = self.process_box(
+                                    box, class_name, color_image, depth_image)
+                            finally:
+                                self.process_detection(
+                                    class_name, box.conf[0], robot_Vals)
+                                self.draw_and_print_info(
+                                    class_name, box.conf[0], robot_Vals, box, color_image)
             except Exception as e:
                 print("An error occurred:", e)
                 print("Traceback:", traceback.format_exc())
@@ -241,24 +276,24 @@ class ObjectDetector:
         # Coordinates for the bounding box
         x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-        print(f"<----------------------------------------------------->")
+        # print(f"<----------------------------------------------------->")
         # Print class name and confidence
-        print("Class name -->", className)
-        print(f"Confidence ---> {confidence * 100:.1f}%")
+        # print("Class name -->", className)
+        # print(f"Confidence ---> {confidence * 100:.1f}%")
 
         # Print depth information
-        print(f"Distance in ---> {depth_in:.3f} in", )
-        print(f"Distance ---> {depth:.3f} mm", )
+        # print(f"Distance in ---> {depth_in:.3f} in", )
+        # print(f"Distance ---> {depth:.3f} mm", )
 
         # Print deprojected coordinates and additional calculated details
-        print(
-            f"RS Deproj  3D Coordinates: (X, Y, Z) = ({deproj[0]}, {deproj[1]}, {deproj[2]})")
-        print(f"Actual Height? Calculated from Deproj = {height}")
+        # print(
+        #    f"RS Deproj  3D Coordinates: (X, Y, Z) = ({deproj[0]}, {deproj[1]}, {deproj[2]})")
+        # print(f"Actual Height? Calculated from Deproj = {height}")
 
-        print(f"Direction from Deproj = {direction}")
-        print(
-            f"Calculated Angle from Deproj = {horizontal_angle} Degrees to the {direction}")
-        print(f"<----------------------------------------------------->\n\n")
+        # print(f"Direction from Deproj = {direction}")
+        # print(
+        #    f"Calculated Angle from Deproj = {horizontal_angle} Degrees to the {direction}")
+        # print(f"<----------------------------------------------------->\n\n")
 
         # Draw text on the color image for visual display
         org = [x1, y1]
@@ -323,41 +358,78 @@ class ObjectDetector:
         return [depth_in, depth, deproj, height, horizontal_angle, direction]
 
     def start_detection(self):
-        print("[INFO] Starting video stream...")
-        self.dc.start_Streaming()
-
-        # Start the serial listener thread
-        # self.start_serial_listener('/dev/ttyUSB0', 9600)  # Adjust these parameters as needed
 
         # Start the keyboard listener thread
         self.start_keyboard_listener()
 
-        while True:
-            # ret, depth_image, color_frame, depth_colormap, depth_frame = self.dc.get_latest_data()
-            ret, depth_image, color_frame, depth_colormap, depth_frame = self.dc.get_frame()
+        print("[INFO] Starting video stream...")
+        self.dc.start_Streaming()
+        self.dc.start_IMU()
+        # Start the serial listener thread
+        self.start_serial_listener(SERIAL_PORT, BAUD_RATE)
+        self.time_start = time.process_time()
+
+        # Starting the asyncio event loop
+        loop = asyncio.get_event_loop()
+        try:
+            # Start capturing IMU data
+            asyncio.ensure_future(self.capture_imu_data())
+            # Start capturing frames
+            asyncio.ensure_future(self.capture_frames())
+            # Start processing frames
+            asyncio.ensure_future(self.process_frames())
+            loop.run_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            loop.close()
+
+        key = cv2.waitKey(1)
+        if key == 13 or (key == 119 or key == 87):
+            print("Writing to CSV")
+            self.write_detections_to_csv(self.detections, "output.csv")
+        if key == 27:
+            self.shutdown()
+
+    async def capture_frames(self):
+        while self.running:
+            ret, depth_frame, color_frame = self.dc.get_frame()
             if not ret:
                 continue
+            if not self.frame_queue.full():
+                # Storing both frames as a tuple
+                self.frame_queue.put((color_frame, depth_frame))
+            await asyncio.sleep(0)  # Yield control to allow other tasks to run
 
-            self.get_vals(depth_image, color_frame)
+    async def process_frames(self):
+        while self.running:
+            if not self.frame_queue.empty():
+                color_frame, depth_frame = self.frame_queue.get()
+                # Process both color and depth frames
+                self.get_vals(depth_frame, color_frame)
 
-            # Display the frames
-            cv2.namedWindow('Color Frame', cv2.WINDOW_NORMAL)
-            cv2.imshow("Color Frame", color_frame)
+                # Display the frame
+                cv2.namedWindow('Color Frame', cv2.WINDOW_NORMAL)
+                cv2.imshow("Color Frame", color_frame)
+                print(
+                    f"Gyro Data Degrees:\nX: {self.gyro_datadeg['x']}\nY: {self.gyro_datadeg['y']}\nZ: {self.gyro_datadeg['z']}")
+                # Check for quit key
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    self.shutdown()
 
-            key = cv2.waitKey(1)
-            if key == 13 or (key == 119 or key == 87):
-                print("Writing to CSV")
-                self.write_detections_to_csv(self.detections, "output.csv")
-            if key == 27:
-                self.write_detections_to_csv(self.detections, "output.csv")
-                self.dc.release()  # Stop Camera
-                # self.dc.stop_streaming() # Stop Camera
-                break
+            await asyncio.sleep(0)  # Yield control to allow other tasks to run
 
-    def get_imu(self):
-        self.accel_data, self.gyro_data = self.dc.get_imu_data()
-        print(f"Intel Realsense Accelerometer Data: {self.accel_data}")
-        print(f"Intel Realsense Gyroscope Data: {self.gyro_data}")
+    async def capture_imu_data(self):
+        while self.running:
+            self.gyro_datadeg = self.dc.get_imu_data()
+            await asyncio.sleep(0)  # Adjust the sleep time as needed
+
+    def shutdown(self):
+        self.running = False
+        self.write_detections_to_csv(self.detections, "output.csv")
+        self.dc.release()  # Stop Camera
+        self.stop_all_listeners()
+        print("Shutting down...")
 
     def stop_all_listeners(self):
         self.running = False  # This will stop the serial listener loop
@@ -369,15 +441,8 @@ class ObjectDetector:
             if key == keyboard.Key.enter or key.char in ['w', 'W']:
                 print("Writing to CSV")
                 self.write_detections_to_csv(self.detections, "output.csv")
-            if key == keyboard.Key.enter or key.char in ['d', 'D']:
-                self.get_imu()
             if key == keyboard.Key.esc or key.char in ['q', 'Q']:
-                self.write_detections_to_csv(self.detections, "output.csv")
-                # self.dc.stop_streaming() # Stop Camera
-                self.dc.release()  # Stop Camera
-                self.stop_all_listeners()
-                print("Listeners stopped.")
-
+                self.shutdown()
         except AttributeError:
             pass
 
@@ -385,5 +450,5 @@ class ObjectDetector:
 # Usage of the class in the main program
 if __name__ == "__main__":
     detector = ObjectDetector(
-        "train11/weights/best.pt", 'camerasettings/settings1.json')
+        MODEL_PATH, CAMERA_SETTINGS_PATH, IGNORE_JSON_PATH)
     detector.start_detection()

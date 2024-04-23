@@ -1,8 +1,9 @@
 """
 This is the File Being Used for the Detections
 """
-import json
 import time
+from time import process_time
+from collections import defaultdict
 
 import cv2
 import math
@@ -19,7 +20,7 @@ from pynput import keyboard
 
 CAMERA_HEIGHT = 63.5  # Camera height from the ground in mm
 # CLASS_NAMES = ['BigBox', 'Nozzle', 'Rocket', 'SmallBox', 'StartZone', 'RedZone', 'BlueZone', 'GreenZone', 'WhiteLine', 'YellowLine']
-CLASS_NAMES = ['BigBox', 'BlueZone', 'Button', 'GreenZone', 'Nozzle', 'RedZone',
+CLASS_NAMES = ['BigBox', 'BlueZone', 'GreenZone', 'Nozzle', 'RedZone',
                'Rocket', 'SmallBox', 'StartZone', 'WhiteLine', 'YellowLine']
 CLASS_COLORS = {
     'BigBox': (235, 82, 52),
@@ -31,8 +32,7 @@ CLASS_COLORS = {
     'GreenZone': (0, 255, 0),
     'BlueZone': (0, 60, 200),
     'YellowLine': (100, 150, 20),
-    'WhiteLine': (255, 255, 255),
-    'Button': (25, 123, 47)
+    'WhiteLine': (255, 255, 255)
 }
 CONFIDENCE_THRESHOLD = 0.6
 MM_TO_INCHES = 25.2
@@ -40,7 +40,7 @@ MM_TO_INCHES = 25.2
 
 class ObjectDetector:
 
-    def __init__(self, model_path, camera_settings_path, ignore_json_path):
+    def __init__(self, model_path, camera_settings_path):
         self.gyro_data = None
         self.accel_data = None
         self.model = YOLO(model_path)
@@ -49,13 +49,8 @@ class ObjectDetector:
         self.lock = threading.Lock()  # Lock for thread safety
         self.detections = []  # Store detections
         self.running = True
-        self.ignore_lists_dict = self.get_ignore_lists(ignore_json_path)
-        self.ignore_list = []
-
-
-    def get_ignore_lists(self, ignore_json_path):
-        with open(ignore_json_path) as ignore_lists:
-            return json.load(ignore_lists)
+        self.track_history = defaultdict(lambda: [])
+        self.start_time = None
 
     def start_keyboard_listener(self):
         """
@@ -80,10 +75,10 @@ class ObjectDetector:
                         line = ser.readline().decode('utf-8').strip()
                         if line == "WRITE_CSV":
                             print("Arduino Command: Writing to CSV")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(self.detections, "../output.csv")
                         elif line == "QUIT":
                             print("Arduino Command: Quitting")
-                            self.write_detections_to_csv(self.detections, "output.csv")
+                            self.write_detections_to_csv(self.detections, "../output.csv")
                             self.dc.release()
                             break
                         elif line == "REQUEST":
@@ -92,23 +87,24 @@ class ObjectDetector:
                             serialized_data = self.serialize_detections(min(10, len(self.detections)))
                             ser.write(serialized_data)
                             print("Sent detections to Arduino")
-                        else:
-                            if line in self.ignore_lists_dict.keys():
-                                self.ignore_list = self.ignore_lists_dict[line]
-
 
         listener_thread = threading.Thread(target=serial_listener)
         listener_thread.start()
 
-    def process_detection(self, class_name, confidence, robot_Vals):
+    def process_detection(self, class_name, confidence, robot_Vals, track_id):
 
-        depth_in, depth, deproj, height, horizontal_angle, direction = [
+        depth_in, depth, deproj, height, horizontal_angle, direction, rtrack_id = [
             val for val in robot_Vals]
         x, y, z = [val for val in deproj]
+        now_time = process_time()
         # Create a Detection instance
-        timestamp = time.time()
-        detection = Detection(class_name, confidence, depth,
-                              depth_in, x, y, z, horizontal_angle, direction, timestamp)
+        timestamp = now_time - self.start_time
+        if track_id != -1:
+            detection = Detection(class_name, confidence, depth,
+                                  depth_in, x, y, z, horizontal_angle, direction, timestamp, track_id)
+        else:
+            detection = Detection(class_name, confidence, depth,
+                                  depth_in, x, y, z, horizontal_angle, direction, timestamp)
 
         # Add the detection to the thread-safe list
         self.add_detection(detection)
@@ -167,42 +163,49 @@ class ObjectDetector:
         Processes the depth and color images to detect objects and calculate their positions.
         """
         robot_Vals = []
-        results = self.model(color_image, stream=True)  # Object detection
+        results = self.model.track(color_image, stream=True, persist=True)  # Object detection
 
         # coordinates
         for r in results:
             boxes = r.boxes  # Detected bounding boxes
             masks = r.masks  # Detected masks
+            lenb = len(boxes)
             try:
-                for mask, box in zip(masks, boxes):
+                track_ids = r.boxes.id.int().tolist()
+            except AttributeError as e:
+                track_ids =  [-1 for _ in range(lenb)]
+            try:
+                for mask, box, track_id in zip(masks, boxes, track_ids):
                     class_name = CLASS_NAMES[int(box.cls[0])]
-                    if class_name not in self.ignore_list:
-                        if box.conf[0] > CONFIDENCE_THRESHOLD:
-                            try:
-                                robot_Vals = self.process_mask(
-                                    mask, class_name, color_image, depth_image)
-                            except Exception as e:
-                                print("An error occurred:", e)
-                                print("Traceback:", traceback.format_exc())
-                                robot_Vals = self.process_box(
-                                    box, class_name, color_image, depth_image)
-                            finally:
-                                self.process_detection(
-                                    class_name, box.conf[0], robot_Vals)
-                                self.draw_and_print_info(
-                                    class_name, box.conf[0], robot_Vals, box, color_image)
+                    if box.conf[0] > CONFIDENCE_THRESHOLD:
+
+                        try:
+                            robot_Vals = self.process_mask(
+                                mask, class_name, color_image, depth_image, track_id)
+
+                        except Exception as e:
+                            print("An error occurred:", e)
+                            print("Traceback:", traceback.format_exc())
+                            robot_Vals = self.process_box(
+                                box, class_name, color_image, depth_image, track_id)
+                        finally:
+
+                            self.process_detection(
+                                class_name, box.conf[0], robot_Vals, track_id)
+                            self.draw_and_print_info(
+                                class_name, box.conf[0], robot_Vals, box, track_id, color_image)
             except Exception as e:
                 print("An error occurred:", e)
                 print("Traceback:", traceback.format_exc())
-                for box in boxes:
+                for box, track_id in zip(boxes, track_ids):
                     if box.conf[0] > CONFIDENCE_THRESHOLD:
                         class_name = CLASS_NAMES[int(box.cls[0])]
                         robot_Vals = self.process_box(
-                            box, class_name, color_image, depth_image)
+                            box, class_name, color_image, depth_image, track_id)
                         self.process_detection(
-                            class_name, box.conf[0], robot_Vals)
+                            class_name, box.conf[0], robot_Vals, track_id)
                         self.draw_and_print_info(
-                            class_name, box.conf[0], robot_Vals, box, color_image)
+                            class_name, box.conf[0], robot_Vals, track_id, box, color_image)
 
     # Calculates average depth information within a bounding box in the depth image
     def calculate_depth_info_box(self, depth_image, bbox):
@@ -247,9 +250,9 @@ class ObjectDetector:
         return deproj, height, horizontal_angle, direction
 
     # Draws information on the color image and prints details to the console
-    def draw_and_print_info(self, className, confidence, robot_Vals, box, color_image):
+    def draw_and_print_info(self, className, confidence, robot_Vals, track_id, box, color_image):
         # Unpack values calculated from depth information
-        depth_in, depth, deproj, height, horizontal_angle, direction = [
+        depth_in, depth, deproj, height, horizontal_angle, direction, rtrack_id = [
             val for val in robot_Vals]
 
         # Coordinates for the bounding box
@@ -259,7 +262,7 @@ class ObjectDetector:
         # Print class name and confidence
         print("Class name -->", className)
         print(f"Confidence ---> {confidence * 100:.1f}%")
-
+        print(f"ID --> {track_id}")
         # Print depth information
         print(f"Distance in ---> {depth_in:.3f} in", )
         print(f"Distance ---> {depth:.3f} mm", )
@@ -275,18 +278,23 @@ class ObjectDetector:
         print(f"<----------------------------------------------------->\n\n")
 
         # Draw text on the color image for visual display
+        mid = int(((y2-y1)/2))
         org = [x1, y1]
+        torg = [x1, y1+3]
         bottom = [x1, y2 + 3]
         bbottom = [x1, y2 + 35]
-        cv2.putText(color_image, f"{className}: {confidence * 100:.0f}%", org, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0),
+        left_mid = [x2, mid]
+        cv2.putText(color_image, f"{rtrack_id}: {className}: {confidence * 100:.0f}%", org, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0),
                     2)
+        cv2.putText(color_image, f"ID: {track_id}",
+                    left_mid, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
         cv2.putText(color_image, f"Distance: {depth_in:.3f} in",
                     bottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
         cv2.putText(color_image, f"Distance: {depth:.3f} mm",
                     bbottom, cv2.FONT_HERSHEY_DUPLEX, 1, (255, 0, 0), 2)
 
     # Processes a mask to calculate depth and positional information
-    def process_mask(self, mask, class_name, color_image, depth_image):
+    def process_mask(self, mask, class_name, color_image, depth_image, track_id):
         classColor = CLASS_COLORS[class_name]
         # Create a binary mask based on detected segments
         segments = mask.xy
@@ -313,10 +321,10 @@ class ObjectDetector:
         contours, _ = cv2.findContours(
             mask_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         cv2.drawContours(color_image, contours, -1, classColor, 3)
-        return [depth_in, depth, deproj, height, horizontal_angle, direction]
+        return [depth_in, depth, deproj, height, horizontal_angle, direction, track_id]
 
     # Processes a bounding box to calculate depth and positional information
-    def process_box(self, box, class_name, color_image, depth_image):
+    def process_box(self, box, class_name, color_image, depth_image, track_id):
         classColor = CLASS_COLORS[class_name]
         # Extract bounding box coordinates
         x1, y1, x2, y2 = map(int, box.xyxy[0])
@@ -334,12 +342,12 @@ class ObjectDetector:
 
         # Draw the bounding box and return calculated values
         cv2.rectangle(color_image, (x1, y1), (x2, y2), classColor, 6)
-        return [depth_in, depth, deproj, height, horizontal_angle, direction]
+        return [depth_in, depth, deproj, height, horizontal_angle, direction, track_id]
 
     def start_detection(self):
         print("[INFO] Starting video stream...")
         self.dc.start_Streaming()
-
+        self.start_time = process_time()
         # Start the serial listener thread
         # self.start_serial_listener('/dev/ttyUSB0', 9600)  # Adjust these parameters as needed
 
@@ -348,11 +356,11 @@ class ObjectDetector:
 
         while True:
             # ret, depth_image, color_frame, depth_colormap, depth_frame = self.dc.get_latest_data()
-            ret, depth_image, color_frame, depth_colormap, depth_frame = self.dc.get_frame()
+            ret, depth_frame, color_frame = self.dc.get_frame()
             if not ret:
                 continue
 
-            self.get_vals(depth_image, color_frame)
+            self.get_vals(depth_frame , color_frame)
 
             # Display the frames
             cv2.namedWindow('Color Frame', cv2.WINDOW_NORMAL)
@@ -361,9 +369,9 @@ class ObjectDetector:
             key = cv2.waitKey(1)
             if key == 13 or (key == 119 or key == 87):
                 print("Writing to CSV")
-                self.write_detections_to_csv(self.detections, "output.csv")
+                self.write_detections_to_csv(self.detections, "../output.csv")
             if key == 27:
-                self.write_detections_to_csv(self.detections, "output.csv")
+                self.write_detections_to_csv(self.detections, "../output.csv")
                 self.dc.release()  # Stop Camera
                 # self.dc.stop_streaming() # Stop Camera
                 break
@@ -382,11 +390,11 @@ class ObjectDetector:
         try:
             if key == keyboard.Key.enter or key.char in ['w', 'W']:
                 print("Writing to CSV")
-                self.write_detections_to_csv(self.detections, "output.csv")
+                self.write_detections_to_csv(self.detections, "../output.csv")
             if key == keyboard.Key.enter or key.char in ['d', 'D']:
                 self.get_imu()
             if key == keyboard.Key.esc or key.char in ['q', 'Q']:
-                self.write_detections_to_csv(self.detections, "output.csv")
+                self.write_detections_to_csv(self.detections, "../output.csv")
                 # self.dc.stop_streaming() # Stop Camera
                 self.dc.release()  # Stop Camera
                 self.stop_all_listeners()
@@ -399,5 +407,5 @@ class ObjectDetector:
 # Usage of the class in the main program
 if __name__ == "__main__":
     detector = ObjectDetector(
-        "train11p2/weights/best.pt", 'camerasettings/settings1.json', 'ignores.json')
+        "../train11/weights/best.pt", 'camerasettings/settings1.json')
     detector.start_detection()
